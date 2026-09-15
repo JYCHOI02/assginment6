@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plan → Do → See</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+<div class="container">
+
+    <header>
+        <div class="badge">PLAN</div>
+        <h1>Plan → Do → See</h1>
+        <p>
+            계획을 세우고, 실제로 한 일을 기록하고,
+            돌아보며 다음 계획으로 연결합니다.
+        </p>
+    </header>
+
+
+    <!-- 계획 작성 영역 -->
+    <section class="card" id="form-section">
+
+        <div class="section-title">
+            <div>
+                <span class="step">01</span>
+                <h2 id="form-title">새 계획 작성</h2>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="mode-text" class="mode">새 계획</span>
+                <button type="button" class="secondary-button hidden" id="new-plan-form-btn">
+                    + 새 계획 작성
+                </button>
+            </div>
+        </div>
+
+
+        <form id="plan-form">
+
+            <div class="form-row">
+                <div class="form-group flex-grow">
+                    <label for="title">무엇을 할 건가요?</label>
+                    <input
+                        type="text"
+                        id="title"
+                        placeholder="예: 정보처리기사 공부"
+                        maxlength="100"
+                        required
+                    >
+                </div>
+
+                <div class="form-group priority-group">
+                    <label>우선순위</label>
+                    <div class="priority-display-container">
+                        <span id="form-priority-display" class="priority-display-tag">자동 배정</span>
+                    </div>
+                    <div class="help" style="font-size: 11px;">저장 후 목록에서 슬라이드로 변경</div>
+                </div>
+            </div>
+
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="start-date">시작일</label>
+                    <input type="date" id="start-date" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="end-date">종료일</label>
+                    <input type="date" id="end-date" required>
+                </div>
+            </div>
+
+
+            <div class="form-group">
+                <label for="success-criteria">성공 기준</label>
+                <textarea
+                    id="success-criteria"
+                    placeholder="예: 기출문제 3회분을 풀고 평균 80점 이상"
+                    maxlength="500"
+                    required
+                ></textarea>
+                <div class="help">
+                    무엇을 달성하면 이 계획이 성공했다고 판단할지 적어주세요.
+                </div>
+            </div>
+
+
+            <div class="form-group">
+                <label for="expected-minutes">예상 시간</label>
+                <div class="time-input">
+                    <input
+                        type="number"
+                        id="expected-minutes"
+                        min="1"
+                        placeholder="120"
+                        required
+                    >
+                    <span>분</span>
+                </div>
+            </div>
+
+
+            <div class="button-row">
+                <button type="submit" class="primary-button" id="submit-button">
+                    계획 저장
+                </button>
+
+                <button type="button" class="secondary-button hidden" id="cancel-button">
+                    수정 취소
+                </button>
+
+                <button type="button" class="primary-button hidden" id="new-plan-action-btn">
+                    + 새 계획 작성하기
+                </button>
+            </div>
+
+        </form>
+
+    </section>
+
+
+    <!-- 저장된 계획 목록 -->
+    <section class="card hidden" id="plan-list-section">
+
+        <div class="section-title">
+            <div>
+                <span class="step list-step">📋</span>
+                <h2>저장된 계획 목록 (<span id="plan-count">0</span>개)</h2>
+            </div>
+
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="secondary-button" id="reorder-toggle-btn">
+                    🔄 우선순위 변경
+                </button>
+                <button type="button" class="secondary-button" id="list-new-plan-btn">
+                    + 새 계획 작성
+                </button>
+            </div>
+        </div>
+
+        <!-- 우선순위 변경 안내 가이드 -->
+        <div id="reorder-guide" class="reorder-guide hidden">
+            <span>👆 <strong>카드를 클릭하고 위아래로 슬라이드(드래그)</strong>하여 우선순위를 변경하세요.</span>
+            <button type="button" class="primary-button" id="reorder-done-btn" style="padding: 6px 14px; font-size: 12px;">
+                완료
+            </button>
+        </div>
+
+        <div id="plan-list" class="plan-list">
+            <!-- 계획 목록 항목들이 여기에 동적으로 렌더링됩니다 -->
+        </div>
+
+    </section>
+
+
+    <!-- 현재 계획 -->
+    <section class="card hidden" id="current-plan-section">
+
+        <div class="section-title">
+            <div>
+                <span class="step">02</span>
+                <h2>현재 계획</h2>
+            </div>
+
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="status-toggle-btn" id="current-status-btn">
+                    ✓ 완료
+                </button>
+                <button type="button" class="edit-button" id="edit-button">
+                    수정하기
+                </button>
+                <button type="button" class="plan-delete-btn" id="delete-button">
+                    삭제
+                </button>
+            </div>
+        </div>
+
+
+        <div class="plan-main">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+                <h3 id="display-title" style="margin: 0;"></h3>
+                <span id="display-status-badge" class="plan-status-badge status-진행중">진행중</span>
+            </div>
+
+            <div class="info-grid">
+                <div class="info-box">
+                    <span class="label">우선순위</span>
+                    <strong id="display-priority"></strong>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">기간</span>
+                    <strong id="display-period"></strong>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">성공 기준</span>
+                    <strong id="display-success"></strong>
+                </div>
+
+                <div class="info-box">
+                    <span class="label">예상 시간</span>
+                    <strong id="display-time"></strong>
+                </div>
+            </div>
+        </div>
+
+
+        <div class="updated">
+            마지막 수정: <span id="display-updated"></span>
+        </div>
+
+    </section>
+
+
+    <!-- 최초 계획 -->
+    <section class="card original-card hidden" id="original-plan-section">
+
+        <div class="section-title">
+            <div>
+                <span class="step original-step">03</span>
+                <div>
+                    <h2>처음 세운 계획</h2>
+                    <p class="section-description">
+                        계획을 수정해도 이 내용은 변하지 않습니다.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+
+        <div class="original-content">
+            <div class="original-title">
+                <span>계획</span>
+                <strong id="original-title"></strong>
+            </div>
+
+            <div class="original-grid">
+                <div>
+                    <span class="label">처음 정한 우선순위</span>
+                    <strong id="original-priority"></strong>
+                </div>
+
+                <div>
+                    <span class="label">처음 계획한 기간</span>
+                    <strong id="original-period"></strong>
+                </div>
+
+                <div>
+                    <span class="label">처음 정한 성공 기준</span>
+                    <strong id="original-success"></strong>
+                </div>
+
+                <div>
+                    <span class="label">처음 예상한 시간</span>
+                    <strong id="original-time"></strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="notice">
+            💡 계획을 수정하더라도 최초 계획은 비교를 위해 그대로 보존됩니다.
+        </div>
+
+    </section>
+
+
+    <!-- 데이터 상태 -->
+    <div id="status-message" class="status"></div>
+
+</div>
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+</html>
