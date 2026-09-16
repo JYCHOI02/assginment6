@@ -42,6 +42,24 @@ def init_db():
         )
     """)
 
+    # 수정 이력 보존을 위한 별도 테이블 생성 (T06-C08 준수)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS plan_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            title TEXT NOT NULL,
+            priority TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            success_criteria TEXT NOT NULL,
+            expected_minutes INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT '진행중',
+            modified_at TEXT NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        )
+    """)
+
     # 기존 데이터베이스 테이블 호환성 유지 (컬럼이 없을 경우 추가)
     cursor = conn.execute("PRAGMA table_info(plans)")
     columns = [row["name"] for row in cursor.fetchall()]
@@ -55,6 +73,14 @@ def init_db():
         conn.execute("ALTER TABLE plans ADD COLUMN original_priority TEXT NOT NULL DEFAULT '1순위'")
     if "current_priority" not in columns:
         conn.execute("ALTER TABLE plans ADD COLUMN current_priority TEXT NOT NULL DEFAULT '1순위'")
+    if "tags" not in columns:
+        conn.execute("ALTER TABLE plans ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
+
+    # plan_history 테이블 컬럼 호환성 유지
+    cursor_hist = conn.execute("PRAGMA table_info(plan_history)")
+    hist_cols = [row["name"] for row in cursor_hist.fetchall()]
+    if "tags" not in hist_cols:
+        conn.execute("ALTER TABLE plan_history ADD COLUMN tags TEXT NOT NULL DEFAULT ''")
 
     # 기존 '높음', '보통', '낮음' 우선순위를 '1순위', '2순위'... 형식으로 마이그레이션
     cursor = conn.execute("SELECT id, original_priority, current_priority FROM plans ORDER BY id ASC")
@@ -74,6 +100,31 @@ def init_db():
             params.append(row["id"])
             conn.execute(f"UPDATE plans SET {', '.join(updates)} WHERE id = ?", params)
 
+    # 기존 데이터 중 수정된 이력이 있으나 plan_history가 비어있는 경우 마이그레이션
+    hist_cnt_row = conn.execute("SELECT COUNT(*) AS cnt FROM plan_history").fetchone()
+    if hist_cnt_row and hist_cnt_row["cnt"] == 0:
+        for row in rows:
+            plan_row = conn.execute("SELECT * FROM plans WHERE id = ?", (row["id"],)).fetchone()
+            if plan_row and (plan_row["updated_at"] != plan_row["created_at"] or (plan_row["original_title"] and plan_row["original_title"] != plan_row["title"])):
+                conn.execute("""
+                    INSERT INTO plan_history (
+                        plan_id, version, title, priority,
+                        start_date, end_date, success_criteria,
+                        expected_minutes, status, modified_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    plan_row["id"],
+                    1,
+                    plan_row["original_title"] or plan_row["title"],
+                    plan_row["original_priority"] or plan_row["current_priority"],
+                    plan_row["original_start_date"] or plan_row["current_start_date"],
+                    plan_row["original_end_date"] or plan_row["current_end_date"],
+                    plan_row["original_success_criteria"] or plan_row["current_success_criteria"],
+                    plan_row["original_expected_minutes"] or plan_row["current_expected_minutes"],
+                    plan_row["status"],
+                    plan_row["updated_at"]
+                ))
+
     conn.commit()
     conn.close()
 
@@ -83,21 +134,59 @@ def index():
     return render_template("index.html")
 
 
-# 모든 저장된 계획 목록 가져오기 (우선순위 오름차순: 1순위, 2순위, ...)
+# 모든 저장된 계획 목록 가져오기 (검색, 필터링, 정렬 지원)
 @app.route("/api/plans", methods=["GET"])
 def get_plans():
+    query = request.args.get("q", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    priority_filter = request.args.get("priority", "").strip()
+    tag_filter = request.args.get("tag", "").strip()
+    sort_by = request.args.get("sort", "priority-asc").strip()
+
     conn = get_db()
 
-    cursor = conn.execute("""
-        SELECT *
-        FROM plans
-        ORDER BY
-            CASE
-                WHEN current_priority LIKE '%순위' THEN CAST(REPLACE(current_priority, '순위', '') AS INTEGER)
-                ELSE 999999
-            END ASC,
-            id DESC
-    """)
+    sql = """
+        SELECT p.*,
+               (SELECT COUNT(*) FROM plan_history h WHERE h.plan_id = p.id) AS history_count
+        FROM plans p
+        WHERE 1=1
+    """
+    params = []
+
+    if query:
+        sql += " AND (p.title LIKE ? OR p.tags LIKE ? OR p.current_success_criteria LIKE ?)"
+        q_wild = f"%{query}%"
+        params.extend([q_wild, q_wild, q_wild])
+
+    if status_filter and status_filter != "all":
+        sql += " AND p.status = ?"
+        params.append(status_filter)
+
+    if priority_filter and priority_filter != "all":
+        sql += " AND p.current_priority = ?"
+        params.append(priority_filter)
+
+    if tag_filter and tag_filter != "all":
+        sql += " AND p.tags LIKE ?"
+        params.append(f"%{tag_filter}%")
+
+    if sort_by == "date-desc":
+        sql += " ORDER BY p.id DESC"
+    elif sort_by == "due-asc":
+        sql += " ORDER BY p.current_end_date ASC, p.id DESC"
+    elif sort_by == "time-asc":
+        sql += " ORDER BY p.current_expected_minutes ASC, p.id DESC"
+    else:  # priority-asc (기본)
+        sql += """
+            ORDER BY
+                CASE
+                    WHEN p.current_priority LIKE '%순위' THEN CAST(REPLACE(p.current_priority, '순위', '') AS INTEGER)
+                    ELSE 999999
+                END ASC,
+                p.id DESC
+        """
+
+    cursor = conn.execute(sql, params)
     plans = [dict(row) for row in cursor.fetchall()]
 
     conn.close()
@@ -127,16 +216,29 @@ def get_plan():
             LIMIT 1
         """).fetchone()
 
-    conn.close()
-
     if plan is None:
+        conn.close()
         return jsonify({
             "exists": False
         })
 
+    plan_dict = dict(plan)
+
+    # 수정 이력(plan_history)도 함께 반환
+    hist_cursor = conn.execute("""
+        SELECT *
+        FROM plan_history
+        WHERE plan_id = ?
+        ORDER BY version DESC, id DESC
+    """, (plan_dict["id"],))
+    history = [dict(row) for row in hist_cursor.fetchall()]
+
+    conn.close()
+
     return jsonify({
         "exists": True,
-        "plan": dict(plan)
+        "plan": plan_dict,
+        "history": history
     })
 
 
@@ -189,6 +291,8 @@ def create_plan():
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    tags = data.get("tags", "").strip()
+
     conn = get_db()
 
     # 우선순위가 비어있거나 '보통'/'높음'/'낮음'인 경우 다음 순위로 자동 배정
@@ -201,6 +305,7 @@ def create_plan():
     cursor = conn.execute("""
         INSERT INTO plans (
             title,
+            tags,
             original_title,
 
             original_priority,
@@ -220,9 +325,10 @@ def create_plan():
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         title,
+        tags,
         title,
 
         priority,
@@ -301,7 +407,7 @@ def update_plan():
     if not success_criteria:
         return jsonify({
             "success": False,
-            "message": "성공 기준을 입력해주세요."
+            "message": "성공 기준을 입력하세요."
         }), 400
 
     if expected_minutes <= 0:
@@ -311,22 +417,68 @@ def update_plan():
         }), 400
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    tags = data.get("tags", "").strip()
 
     conn = get_db()
 
+    # 기존 계획 조회 (수정 전 상태)
+    existing = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "계획을 찾을 수 없습니다."
+        }), 404
+
     # 우선순위가 비어있거나 구버전 값인 경우 기존 우선순위 유지
     if not priority or priority in ["높음", "보통", "낮음"]:
-        existing = conn.execute("SELECT current_priority FROM plans WHERE id = ?", (plan_id,)).fetchone()
-        if existing and existing["current_priority"]:
+        if existing["current_priority"]:
             priority = existing["current_priority"]
         else:
             priority = "1순위"
 
-    # original_* 컬럼은 유지하고 current_* 컬럼만 수정
+    # [T06-C08] 계획을 고쳐도 고치기 전 계획이 그대로 남아 있다.
+    # 수정 전 계획 상태를 별도 표(plan_history)에 분리 저장하고, 계획 ID는 유지
+    ver_cursor = conn.execute("SELECT COUNT(*) AS cnt FROM plan_history WHERE plan_id = ?", (plan_id,))
+    ver_count = ver_cursor.fetchone()["cnt"]
+    next_ver = ver_count + 1
+
+    existing_tags = existing["tags"] if "tags" in existing.keys() else ""
+
+    conn.execute("""
+        INSERT INTO plan_history (
+            plan_id,
+            version,
+            title,
+            tags,
+            priority,
+            start_date,
+            end_date,
+            success_criteria,
+            expected_minutes,
+            status,
+            modified_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        plan_id,
+        next_ver,
+        existing["title"],
+        existing_tags,
+        existing["current_priority"],
+        existing["current_start_date"],
+        existing["current_end_date"],
+        existing["current_success_criteria"],
+        existing["current_expected_minutes"],
+        existing["status"],
+        now
+    ))
+
     result = conn.execute("""
         UPDATE plans
         SET
             title = ?,
+            tags = ?,
             current_priority = ?,
             current_start_date = ?,
             current_end_date = ?,
@@ -336,6 +488,7 @@ def update_plan():
         WHERE id = ?
     """, (
         title,
+        tags,
         priority,
         start_date,
         end_date,
@@ -346,20 +499,108 @@ def update_plan():
     ))
 
     conn.commit()
-
-    updated = result.rowcount > 0
-
     conn.close()
-
-    if not updated:
-        return jsonify({
-            "success": False,
-            "message": "계획을 찾을 수 없습니다."
-        }), 404
 
     return jsonify({
         "success": True,
-        "message": "계획이 수정되었습니다."
+        "message": "계획이 수정되었습니다. 수정 전 계획은 이력 표에 보존됩니다."
+    })
+
+
+# 특정 계획의 수정 이력 목록 가져오기 (T06-C08)
+@app.route("/api/plan/<int:plan_id>/history", methods=["GET"])
+def get_plan_history(plan_id):
+    conn = get_db()
+    cursor = conn.execute("""
+        SELECT *
+        FROM plan_history
+        WHERE plan_id = ?
+        ORDER BY version DESC, id DESC
+    """, (plan_id,))
+    history = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "plan_id": plan_id,
+        "history": history,
+        "count": len(history)
+    })
+
+
+# 특정 수정 이력으로 계획 복원하기
+@app.route("/api/plan/<int:plan_id>/history/<int:history_id>/restore", methods=["POST"])
+def restore_plan_history(plan_id, history_id):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+
+    target_history = conn.execute(
+        "SELECT * FROM plan_history WHERE id = ? AND plan_id = ?",
+        (history_id, plan_id)
+    ).fetchone()
+
+    if not target_history:
+        conn.close()
+        return jsonify({"success": False, "message": "해당 수정 이력을 찾을 수 없습니다."}), 404
+
+    current = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not current:
+        conn.close()
+        return jsonify({"success": False, "message": "계획을 찾을 수 없습니다."}), 404
+
+    # 복원 전 현재 상태도 이력에 추가 보존
+    ver_cursor = conn.execute("SELECT COUNT(*) AS cnt FROM plan_history WHERE plan_id = ?", (plan_id,))
+    ver_count = ver_cursor.fetchone()["cnt"]
+    next_ver = ver_count + 1
+
+    current_tags = current["tags"] if "tags" in current.keys() else ""
+    target_tags = target_history["tags"] if "tags" in target_history.keys() else ""
+
+    conn.execute("""
+        INSERT INTO plan_history (
+            plan_id, version, title, tags, priority,
+            start_date, end_date, success_criteria,
+            expected_minutes, status, modified_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        plan_id, next_ver,
+        current["title"], current_tags, current["current_priority"],
+        current["current_start_date"], current["current_end_date"],
+        current["current_success_criteria"], current["current_expected_minutes"],
+        current["status"], now
+    ))
+
+    # 대상 이력 데이터로 plans 테이블 복원
+    conn.execute("""
+        UPDATE plans
+        SET
+            title = ?,
+            tags = ?,
+            current_priority = ?,
+            current_start_date = ?,
+            current_end_date = ?,
+            current_success_criteria = ?,
+            current_expected_minutes = ?,
+            updated_at = ?
+        WHERE id = ?
+    """, (
+        target_history["title"],
+        target_tags,
+        target_history["priority"],
+        target_history["start_date"],
+        target_history["end_date"],
+        target_history["success_criteria"],
+        target_history["expected_minutes"],
+        now,
+        plan_id
+    ))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": f"'{target_history['title']}'(v{target_history['version']}) 버전으로 계획이 복원되었습니다."
     })
 
 
@@ -469,10 +710,11 @@ def update_plan_status(plan_id):
     })
 
 
-# 계획 삭제
+# 계획 삭제 (해당 계획의 수정 이력도 함께 삭제)
 @app.route("/api/plan/<int:plan_id>", methods=["DELETE"])
 def delete_plan(plan_id):
     conn = get_db()
+    conn.execute("DELETE FROM plan_history WHERE plan_id = ?", (plan_id,))
     result = conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
     conn.commit()
     deleted = result.rowcount > 0
@@ -486,7 +728,7 @@ def delete_plan(plan_id):
 
     return jsonify({
         "success": True,
-        "message": "계획이 삭제되었습니다."
+        "message": "계획과 수정 이력이 삭제되었습니다."
     })
 
 

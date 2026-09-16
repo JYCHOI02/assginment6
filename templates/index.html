@@ -104,6 +104,20 @@
             </div>
 
 
+            <div class="form-group">
+                <label for="tags">태그 (선택)</label>
+                <input
+                    type="text"
+                    id="tags"
+                    placeholder="예: 공부, 자격증, 코딩 (쉼표로 구분)"
+                    maxlength="100"
+                >
+                <div class="help">
+                    쉼표(,)로 구분하여 여러 개의 태그를 입력할 수 있습니다. (예: 운동, 건강, 습관)
+                </div>
+            </div>
+
+
             <div class="button-row">
                 <button type="submit" class="primary-button" id="submit-button">
                     계획 저장
@@ -148,6 +162,67 @@
             <button type="button" class="primary-button" id="reorder-done-btn" style="padding: 6px 14px; font-size: 12px;">
                 완료
             </button>
+        </div>
+
+        <!-- 🔍 검색 및 조건 필터 툴바 -->
+        <div class="filter-toolbar">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="plan-search-input" placeholder="계획명, 태그, 성공 기준 텍스트로 검색...">
+                <button type="button" id="search-clear-btn" class="search-clear-btn hidden" title="검색어 지우기">✕</button>
+            </div>
+
+            <div class="filter-controls">
+                <div class="filter-item">
+                    <label for="filter-status">상태</label>
+                    <select id="filter-status">
+                        <option value="all">전체 상태</option>
+                        <option value="진행중">진행중</option>
+                        <option value="완료">완료</option>
+                    </select>
+                </div>
+
+                <div class="filter-item">
+                    <label for="filter-priority">우선순위</label>
+                    <select id="filter-priority">
+                        <option value="all">전체 우선순위</option>
+                        <option value="1순위">1순위</option>
+                        <option value="2순위">2순위</option>
+                        <option value="3순위">3순위</option>
+                    </select>
+                </div>
+
+                <div class="filter-item">
+                    <label for="filter-tag">태그</label>
+                    <select id="filter-tag">
+                        <option value="all">전체 태그</option>
+                    </select>
+                </div>
+
+                <div class="filter-item">
+                    <label for="sort-by">정렬 기준</label>
+                    <select id="sort-by">
+                        <option value="priority-asc">우선순위순</option>
+                        <option value="date-desc">최신 등록순</option>
+                        <option value="due-asc">마감일 임박순</option>
+                        <option value="time-asc">예상시간 짧은순</option>
+                    </select>
+                </div>
+
+                <button type="button" id="filter-reset-btn" class="filter-reset-btn" title="모든 검색 및 필터 초기화">
+                    ↺ 필터 초기화
+                </button>
+            </div>
+
+            <div id="filter-status-summary" class="filter-status-summary hidden">
+                <span id="filter-summary-text"></span>
+            </div>
+        </div>
+
+        <!-- 필터 결과 없을 때 안내 -->
+        <div id="plan-empty-filter" class="plan-empty-filter hidden">
+            <p>🔍 조건에 맞는 계획이 없습니다.</p>
+            <button type="button" class="secondary-button" id="empty-reset-btn">필터 초기화</button>
         </div>
 
         <div id="plan-list" class="plan-list">
@@ -206,6 +281,11 @@
                     <span class="label">예상 시간</span>
                     <strong id="display-time"></strong>
                 </div>
+
+                <div class="info-box info-box-wide">
+                    <span class="label">태그</span>
+                    <div id="display-tags" class="plan-tags-display"></div>
+                </div>
             </div>
         </div>
 
@@ -217,53 +297,49 @@
     </section>
 
 
-    <!-- 최초 계획 -->
-    <section class="card original-card hidden" id="original-plan-section">
+    <!-- 계획 수정 이력 (T06-C08: 계획을 고쳐도 고치기 전 계획이 그대로 남아 있다) -->
+    <section class="card hidden" id="history-section">
 
         <div class="section-title">
             <div>
-                <span class="step original-step">03</span>
+                <span class="step history-step">03</span>
                 <div>
-                    <h2>처음 세운 계획</h2>
+                    <h2>계획 수정 이력</h2>
                     <p class="section-description">
-                        계획을 수정해도 이 내용은 변하지 않습니다.
+                        계획을 수정해도 고치기 전 계획이 별도 표에 분리되어 그대로 보존됩니다.
                     </p>
                 </div>
             </div>
+            <span id="history-count-badge" class="history-count-badge">이력 0건</span>
         </div>
 
-
-        <div class="original-content">
-            <div class="original-title">
-                <span>계획</span>
-                <strong id="original-title"></strong>
-            </div>
-
-            <div class="original-grid">
-                <div>
-                    <span class="label">처음 정한 우선순위</span>
-                    <strong id="original-priority"></strong>
-                </div>
-
-                <div>
-                    <span class="label">처음 계획한 기간</span>
-                    <strong id="original-period"></strong>
-                </div>
-
-                <div>
-                    <span class="label">처음 정한 성공 기준</span>
-                    <strong id="original-success"></strong>
-                </div>
-
-                <div>
-                    <span class="label">처음 예상한 시간</span>
-                    <strong id="original-time"></strong>
-                </div>
-            </div>
+        <!-- 수정 이력이 없을 때 표시할 안내 -->
+        <div id="history-empty" class="history-empty">
+            <p>💡 아직 수정 이력이 없습니다. 현재 계획을 수정하면 고치기 전 계획이 이곳에 자동으로 기록·보존됩니다.</p>
         </div>
 
-        <div class="notice">
-            💡 계획을 수정하더라도 최초 계획은 비교를 위해 그대로 보존됩니다.
+        <!-- 수정 이력 표 (별도 표에 분리 저장된 수정 전 계획 목록) -->
+        <div id="history-table-wrapper" class="history-table-wrapper hidden">
+            <table class="history-table">
+                <thead>
+                    <tr>
+                        <th style="width: 14%;">버전</th>
+                        <th style="width: 17%;">수정 시각</th>
+                        <th style="width: 21%;">고치기 전 계획명</th>
+                        <th style="width: 10%;">우선순위</th>
+                        <th style="width: 18%;">기간</th>
+                        <th style="width: 10%;">예상 시간</th>
+                        <th style="width: 10%;">복원</th>
+                    </tr>
+                </thead>
+                <tbody id="history-list-body">
+                    <!-- 수정 이력 행들이 여기에 동적으로 렌더링됩니다 -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="notice" style="margin-top: 16px;">
+            💡 <strong>T06-C08 충족:</strong> 계획을 고쳐도 기존 계획을 덮어쓰지 않고, 고치기 전 계획을 별도의 표(DB 테이블 및 화면)에 분리 저장하여 계획 ID를 유지한 채 안전하게 보존합니다.
         </div>
 
     </section>
