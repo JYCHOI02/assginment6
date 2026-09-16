@@ -12,21 +12,21 @@
 <div class="container">
 
     <header>
-        <div class="badge">PLAN</div>
+        <div class="badge">PLAN → DO → SEE</div>
         <h1>Plan → Do → See</h1>
         <p>
-            계획을 세우고, 실제로 한 일을 기록하고,
-            돌아보며 다음 계획으로 연결합니다.
+            계획을 세우고(Plan), 실제로 한 일을 기록하고(Do),
+            돌아보며(See) 다음 계획으로 연결합니다.
         </p>
     </header>
 
 
-    <!-- 계획 작성 영역 -->
+    <!-- 계획 작성 영역 (PLAN) -->
     <section class="card" id="form-section">
 
         <div class="section-title">
             <div>
-                <span class="step">01</span>
+                <span class="step plan-step">PLAN</span>
                 <h2 id="form-title">새 계획 작성</h2>
             </div>
             <div style="display: flex; align-items: center; gap: 10px;">
@@ -232,114 +232,345 @@
     </section>
 
 
-    <!-- 현재 계획 -->
-    <section class="card hidden" id="current-plan-section">
+    <!-- 🗂 우측 슬라이드 패널 (옵션 B: 현재 계획 상세 및 계획 수정 이력) -->
+    <div id="drawer-backdrop" class="drawer-backdrop"></div>
+    <aside id="plan-detail-drawer" class="plan-detail-drawer" aria-label="계획 상세 및 수정 이력">
+
+        <!-- 슬라이드 드로어 상단 헤더 바 -->
+        <div class="drawer-header">
+            <div class="drawer-header-title">
+                <span class="drawer-badge">PLAN DETAIL</span>
+                <h3>계획 상세 &amp; 수정 이력</h3>
+            </div>
+            <button type="button" class="drawer-close-btn" id="drawer-close-btn" title="닫기 (Esc)">
+                ✕ 닫기
+            </button>
+        </div>
+
+        <div class="drawer-body">
+            <!-- 현재 계획 상세 -->
+            <section class="drawer-card" id="current-plan-section">
+
+                <div class="section-title">
+                    <div>
+                        <span class="drawer-step-icon">📋</span>
+                        <h2>현재 계획 상세</h2>
+                    </div>
+
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button type="button" class="status-toggle-btn" id="current-status-btn">
+                            ✓ 완료
+                        </button>
+                        <button type="button" class="edit-button" id="edit-button">
+                            수정하기
+                        </button>
+                        <button type="button" class="plan-delete-btn" id="delete-button">
+                            삭제
+                        </button>
+                    </div>
+                </div>
+
+                <div class="plan-main">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
+                        <h3 id="display-title" style="margin: 0;"></h3>
+                        <span id="display-status-badge" class="plan-status-badge status-진행중">진행중</span>
+                    </div>
+
+                    <div class="info-grid">
+                        <div class="info-box">
+                            <span class="label">우선순위</span>
+                            <strong id="display-priority"></strong>
+                        </div>
+
+                        <div class="info-box">
+                            <span class="label">기간</span>
+                            <strong id="display-period"></strong>
+                        </div>
+
+                        <div class="info-box">
+                            <span class="label">성공 기준</span>
+                            <strong id="display-success"></strong>
+                        </div>
+
+                        <div class="info-box">
+                            <span class="label">예상 시간</span>
+                            <strong id="display-time"></strong>
+                        </div>
+
+                        <div class="info-box info-box-wide">
+                            <span class="label">태그</span>
+                            <div id="display-tags" class="plan-tags-display"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="updated">
+                    마지막 수정: <span id="display-updated"></span>
+                </div>
+
+            </section>
+
+            <!-- 계획 수정 이력 (T06-C08) -->
+            <section class="drawer-card" id="history-section" style="margin-top: 20px;">
+
+                <div class="section-title">
+                    <div>
+                        <span class="drawer-step-icon">📜</span>
+                        <div>
+                            <h2>계획 수정 이력</h2>
+                            <p class="section-description">
+                                계획을 수정해도 고치기 전 계획이 별도 표에 분리되어 그대로 보존됩니다.
+                            </p>
+                        </div>
+                    </div>
+                    <span id="history-count-badge" class="history-count-badge">이력 0건</span>
+                </div>
+
+                <!-- 수정 이력이 없을 때 표시할 안내 -->
+                <div id="history-empty" class="history-empty">
+                    <p>💡 아직 수정 이력이 없습니다. 현재 계획을 수정하면 고치기 전 계획이 이곳에 자동으로 기록·보존됩니다.</p>
+                </div>
+
+                <!-- 수정 이력 표 (별도 표에 분리 저장된 수정 전 계획 목록) -->
+                <div id="history-table-wrapper" class="history-table-wrapper hidden">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 14%;">버전</th>
+                                <th style="width: 17%;">수정 시각</th>
+                                <th style="width: 21%;">고치기 전 계획명</th>
+                                <th style="width: 10%;">우선순위</th>
+                                <th style="width: 18%;">기간</th>
+                                <th style="width: 10%;">예상 시간</th>
+                                <th style="width: 10%;">복원</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-list-body">
+                            <!-- 수정 이력 행들이 여기에 동적으로 렌더링됩니다 -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="notice" style="margin-top: 16px;">
+                    💡 <strong>T06-C08 충족:</strong> 계획을 고쳐도 기존 계획을 덮어쓰지 않고, 고치기 전 계획을 별도의 표(DB 테이블 및 화면)에 분리 저장하여 계획 ID를 유지한 채 안전하게 보존합니다.
+                </div>
+
+            </section>
+        </div>
+
+    </aside>
+
+
+    <!-- 실행 기록 (DO) -->
+    <section class="card hidden" id="execution-section">
 
         <div class="section-title">
             <div>
-                <span class="step">02</span>
-                <h2>현재 계획</h2>
-            </div>
-
-            <div style="display: flex; gap: 8px; align-items: center;">
-                <button type="button" class="status-toggle-btn" id="current-status-btn">
-                    ✓ 완료
-                </button>
-                <button type="button" class="edit-button" id="edit-button">
-                    수정하기
-                </button>
-                <button type="button" class="plan-delete-btn" id="delete-button">
-                    삭제
-                </button>
-            </div>
-        </div>
-
-
-        <div class="plan-main">
-            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 24px;">
-                <h3 id="display-title" style="margin: 0;"></h3>
-                <span id="display-status-badge" class="plan-status-badge status-진행중">진행중</span>
-            </div>
-
-            <div class="info-grid">
-                <div class="info-box">
-                    <span class="label">우선순위</span>
-                    <strong id="display-priority"></strong>
-                </div>
-
-                <div class="info-box">
-                    <span class="label">기간</span>
-                    <strong id="display-period"></strong>
-                </div>
-
-                <div class="info-box">
-                    <span class="label">성공 기준</span>
-                    <strong id="display-success"></strong>
-                </div>
-
-                <div class="info-box">
-                    <span class="label">예상 시간</span>
-                    <strong id="display-time"></strong>
-                </div>
-
-                <div class="info-box info-box-wide">
-                    <span class="label">태그</span>
-                    <div id="display-tags" class="plan-tags-display"></div>
-                </div>
-            </div>
-        </div>
-
-
-        <div class="updated">
-            마지막 수정: <span id="display-updated"></span>
-        </div>
-
-    </section>
-
-
-    <!-- 계획 수정 이력 (T06-C08: 계획을 고쳐도 고치기 전 계획이 그대로 남아 있다) -->
-    <section class="card hidden" id="history-section">
-
-        <div class="section-title">
-            <div>
-                <span class="step history-step">03</span>
+                <span class="step do-step">DO</span>
                 <div>
-                    <h2>계획 수정 이력</h2>
+                    <h2>실행 기록</h2>
                     <p class="section-description">
-                        계획을 수정해도 고치기 전 계획이 별도 표에 분리되어 그대로 보존됩니다.
+                        계획과 별개로 실제로 언제 시작해서 얼마나 걸렸고 어디서 막혔는지를 남깁니다.
                     </p>
                 </div>
             </div>
-            <span id="history-count-badge" class="history-count-badge">이력 0건</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="target-plan-badge" class="target-plan-badge">선택된 계획 없음</span>
+                <span id="execution-count-badge" class="history-count-badge">실행 0건</span>
+            </div>
         </div>
 
-        <!-- 수정 이력이 없을 때 표시할 안내 -->
-        <div id="history-empty" class="history-empty">
-            <p>💡 아직 수정 이력이 없습니다. 현재 계획을 수정하면 고치기 전 계획이 이곳에 자동으로 기록·보존됩니다.</p>
+        <!-- 실행 기록 작성 폼 -->
+        <form id="execution-form" class="execution-form">
+
+            <div class="form-row">
+                <div class="form-group flex-grow">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px;">
+                        <label for="exec-start-time" style="margin-bottom: 0;">시작 시각</label>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" class="quick-time-btn" id="btn-zero-start" title="분을 :00 정각으로 설정">:00 정각</button>
+                            <button type="button" class="quick-time-btn" id="btn-now-start" title="현재 시각으로 입력">🕒 지금 시각</button>
+                        </div>
+                    </div>
+                    <input type="datetime-local" id="exec-start-time" step="60" required>
+                </div>
+
+                <div class="form-group flex-grow">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 9px;">
+                        <label for="exec-end-time" style="margin-bottom: 0;">끝 시각</label>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" class="quick-time-btn" id="btn-zero-end" title="분을 :00 정각으로 설정">:00 정각</button>
+                            <button type="button" class="quick-time-btn" id="btn-now-end" title="현재 시각으로 입력">🕒 지금 시각</button>
+                        </div>
+                    </div>
+                    <input type="datetime-local" id="exec-end-time" step="60" required>
+                </div>
+
+                <div class="form-group" style="width: 170px;">
+                    <label for="exec-actual-minutes">실제로 걸린 시간</label>
+                    <div class="time-input">
+                        <input type="number" id="exec-actual-minutes" min="1" placeholder="60" required>
+                        <span>분</span>
+                    </div>
+                    <div class="help" style="font-size: 11px;">시작/끝 시각 선택 시 자동 계산</div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="exec-blocker-reason">어디서 막혔나요? (막혔던 이유)</label>
+                <textarea
+                    id="exec-blocker-reason"
+                    placeholder="예: 특정 라이브러리 설치 오류로 30분 지체됨, 알고리즘 개념 이해에 예상보다 많은 시간 소요 등 (없으면 빈칸 가능)"
+                    rows="2"
+                    style="min-height: 60px;"
+                ></textarea>
+                <div class="help">
+                    진행 중 막히거나 지체되었던 요인을 기록하면 돌아보기(See)에서 종합 분석할 수 있습니다.
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="exec-memo">실행 내용 / 메모 (선택)</label>
+                <input
+                    type="text"
+                    id="exec-memo"
+                    placeholder="예: 1단원 핵심 개념 학습 및 예제 5문제 풀이 완료"
+                    maxlength="200"
+                >
+            </div>
+
+            <div class="execution-form-footer">
+                <label class="checkbox-container">
+                    <input type="checkbox" id="exec-mark-completed">
+                    <span class="checkbox-label">✓ 이 실행 기록과 함께 계획을 '완료'로 처리하기</span>
+                </label>
+
+                <button type="submit" class="primary-button" id="exec-submit-btn">
+                    + 실행 기록 저장
+                </button>
+            </div>
+
+        </form>
+
+        <!-- 실행 기록 안내 문구 -->
+        <div id="execution-empty" class="history-empty" style="margin-top: 24px;">
+            <p>💡 아직 기록된 실행 내역이 없습니다. 실제로 진행한 시작/끝 시각과 소요 시간, 막혔던 이유를 기록해보세요.</p>
         </div>
 
-        <!-- 수정 이력 표 (별도 표에 분리 저장된 수정 전 계획 목록) -->
-        <div id="history-table-wrapper" class="history-table-wrapper hidden">
+        <!-- 실행 기록 표 (이전 기록이 사라지지 않고 모두 누적 보존됨) -->
+        <div id="execution-table-wrapper" class="history-table-wrapper hidden" style="margin-top: 24px;">
+            <div class="execution-table-header">
+                <span><strong>실행 누적 이력</strong> (총 <span id="exec-history-count">0</span>회 · 누적 소요: <span id="exec-total-minutes">0분</span>)</span>
+                <span class="notice-badge">💡 이전 실행 기록이 사라지지 않고 누적 보존됩니다</span>
+            </div>
             <table class="history-table">
                 <thead>
                     <tr>
-                        <th style="width: 14%;">버전</th>
-                        <th style="width: 17%;">수정 시각</th>
-                        <th style="width: 21%;">고치기 전 계획명</th>
-                        <th style="width: 10%;">우선순위</th>
-                        <th style="width: 18%;">기간</th>
-                        <th style="width: 10%;">예상 시간</th>
-                        <th style="width: 10%;">복원</th>
+                        <th style="width: 10%;">회차</th>
+                        <th style="width: 28%;">실행 시각 (시작 ~ 끝)</th>
+                        <th style="width: 14%;">실소요 시간</th>
+                        <th style="width: 25%;">막혔던 이유</th>
+                        <th style="width: 15%;">실행 내용 / 메모</th>
+                        <th style="width: 8%;">삭제</th>
                     </tr>
                 </thead>
-                <tbody id="history-list-body">
-                    <!-- 수정 이력 행들이 여기에 동적으로 렌더링됩니다 -->
+                <tbody id="execution-list-body">
+                    <!-- 실행 기록 행들이 여기에 동적으로 렌더링됩니다 -->
                 </tbody>
             </table>
         </div>
 
         <div class="notice" style="margin-top: 16px;">
-            💡 <strong>T06-C08 충족:</strong> 계획을 고쳐도 기존 계획을 덮어쓰지 않고, 고치기 전 계획을 별도의 표(DB 테이블 및 화면)에 분리 저장하여 계획 ID를 유지한 채 안전하게 보존합니다.
+            💡 <strong>실행 분리 보존:</strong> 실행 기록(Do)은 계획(Plan)을 덮어쓰지 않고 독립적으로 저장되며, 실행 기록을 새로 추가해도 이전의 기록들이 사라지지 않고 모두 안전하게 누적 보존됩니다.
+        </div>
+
+    </section>
+
+
+    <!-- 돌아보기 (SEE) -->
+    <section class="card" id="see-section">
+
+        <div class="section-title">
+            <div>
+                <span class="step see-step">SEE</span>
+                <div>
+                    <h2>돌아보기</h2>
+                    <p class="section-description">
+                        계획(Plan)과 실제 실행(Do)을 비교하고, 완료 성과와 막혔던 이유를 분석하여 다음 계획으로 연결합니다.
+                    </p>
+                </div>
+            </div>
+            <button type="button" class="secondary-button" id="see-refresh-btn" title="돌아보기 데이터 새로고침">
+                🔄 새로고침
+            </button>
+        </div>
+
+        <!-- 돌아보기 KPI 대시보드 그리드 -->
+        <div class="see-kpi-grid">
+            <div class="see-kpi-card highlight-card">
+                <div class="see-kpi-label">🎯 완료 수</div>
+                <div class="see-kpi-value"><span id="see-completed-count">0</span><span class="unit">개</span></div>
+                <div class="see-kpi-subtext" id="see-completed-sub">완료 버튼 중복 클릭 시에도 1만 카운트</div>
+            </div>
+
+            <div class="see-kpi-card">
+                <div class="see-kpi-label">⏳ 진행중 계획</div>
+                <div class="see-kpi-value"><span id="see-ongoing-count">0</span><span class="unit">개</span></div>
+                <div class="see-kpi-subtext">실행 및 대기 중인 계획</div>
+            </div>
+
+            <div class="see-kpi-card">
+                <div class="see-kpi-label">📈 목표 달성률</div>
+                <div class="see-kpi-value"><span id="see-completion-rate">0</span><span class="unit">%</span></div>
+                <div class="see-progress-bar">
+                    <div class="see-progress-fill" id="see-progress-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
+            <div class="see-kpi-card">
+                <div class="see-kpi-label">⏱ 시간 분석 (예상 vs 실제)</div>
+                <div class="see-kpi-value" style="font-size: 18px;" id="see-time-summary">예상 0분 / 실제 0분</div>
+                <div class="see-kpi-subtext" id="see-time-diff">계획 대비 실제 소요 차이: 0분</div>
+            </div>
+        </div>
+
+        <!-- 막혔던 이유(병목 요인) 모아보기 -->
+        <div class="see-blockers-box" style="margin-top: 24px;">
+            <div class="see-subtitle">
+                <span>🚧 어디서 막혔나요? (실행 중 발생한 병목 요인 모아보기)</span>
+                <span id="see-blocker-count-tag" class="blocker-count-tag">0건</span>
+            </div>
+            <div id="see-blockers-empty" class="see-blockers-empty">
+                💡 아직 기록된 막힘 사유가 없습니다. 실행(Do) 시 어디서 막혔는지를 기록하면 이곳에 모아져 다음 계획 수립에 참고할 수 있습니다.
+            </div>
+            <div id="see-blockers-list" class="see-blockers-list hidden">
+                <!-- 막혔던 이유 카드들이 여기에 동적으로 렌더링됩니다 -->
+            </div>
+        </div>
+
+        <!-- 계획 vs 실제 실행 비교 분석 표 (원래 계획을 덮어쓰지 않고 나란히 비교) -->
+        <div class="see-table-box" style="margin-top: 24px;">
+            <div class="see-subtitle">
+                <span>📋 계획 vs 실제 실행 비교 분석 표</span>
+                <span class="help-text">완료 목표 실행 기록이 원래 계획을 덮어쓰지 않고 나란히 보존·비교됩니다.</span>
+            </div>
+            <div class="history-table-wrapper">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 22%;">계획명</th>
+                            <th style="width: 12%;">상태</th>
+                            <th style="width: 17%;">계획 예상 시간</th>
+                            <th style="width: 17%;">실제 총 소요 시간</th>
+                            <th style="width: 14%;">시간 차이</th>
+                            <th style="width: 18%;">완료 일시</th>
+                        </tr>
+                    </thead>
+                    <tbody id="see-table-body">
+                        <!-- 계획 vs 실행 비교 행들이 여기에 동적으로 렌더링됩니다 -->
+                    </tbody>
+                </table>
+            </div>
         </div>
 
     </section>

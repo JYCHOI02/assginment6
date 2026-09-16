@@ -4,6 +4,7 @@ let selectedPlanId = null;
 let editing = false;
 let isReorderMode = false;
 let draggedIndex = null;
+let currentPlanExecutions = [];
 
 // HTML 요소
 const form = document.getElementById("plan-form");
@@ -60,6 +61,101 @@ const editButton = document.getElementById("edit-button");
 const deleteButton = document.getElementById("delete-button");
 const statusMessage = document.getElementById("status-message");
 
+// ⚡ Section 04: 실행 기록 (Do) UI 요소
+const executionSection = document.getElementById("execution-section");
+const targetPlanBadge = document.getElementById("target-plan-badge");
+const executionCountBadge = document.getElementById("execution-count-badge");
+const executionForm = document.getElementById("execution-form");
+const execStartTimeInput = document.getElementById("exec-start-time");
+const execEndTimeInput = document.getElementById("exec-end-time");
+const execActualMinutesInput = document.getElementById("exec-actual-minutes");
+const execBlockerReasonInput = document.getElementById("exec-blocker-reason");
+const execMemoInput = document.getElementById("exec-memo");
+const execMarkCompleted = document.getElementById("exec-mark-completed");
+const execSubmitBtn = document.getElementById("exec-submit-btn");
+const btnNowStart = document.getElementById("btn-now-start");
+const btnNowEnd = document.getElementById("btn-now-end");
+const btnZeroStart = document.getElementById("btn-zero-start");
+const btnZeroEnd = document.getElementById("btn-zero-end");
+const executionEmpty = document.getElementById("execution-empty");
+const executionTableWrapper = document.getElementById("execution-table-wrapper");
+const execHistoryCount = document.getElementById("exec-history-count");
+const execTotalMinutes = document.getElementById("exec-total-minutes");
+const executionListBody = document.getElementById("execution-list-body");
+
+// 📊 Section 05: 돌아보기 (See) UI 요소
+const seeSection = document.getElementById("see-section");
+const seeRefreshBtn = document.getElementById("see-refresh-btn");
+const seeCompletedCount = document.getElementById("see-completed-count");
+const seeOngoingCount = document.getElementById("see-ongoing-count");
+const seeCompletionRate = document.getElementById("see-completion-rate");
+const seeProgressFill = document.getElementById("see-progress-fill");
+const seeTimeSummary = document.getElementById("see-time-summary");
+const seeTimeDiff = document.getElementById("see-time-diff");
+const seeBlockerCountTag = document.getElementById("see-blocker-count-tag");
+const seeBlockersEmpty = document.getElementById("see-blockers-empty");
+const seeBlockersList = document.getElementById("see-blockers-list");
+const seeTableBody = document.getElementById("see-table-body");
+
+// 🗂 Slide-over Drawer (옵션 B) UI 요소
+const drawerBackdrop = document.getElementById("drawer-backdrop");
+const planDetailDrawer = document.getElementById("plan-detail-drawer");
+const drawerCloseBtn = document.getElementById("drawer-close-btn");
+
+// 슬라이드 드로어 열기/닫기 제어 함수 (데스크톱 Modeless Side-Peek & 모바일 Modal Sheet)
+function openPlanDrawer() {
+    if (planDetailDrawer) {
+        if (drawerBackdrop && window.innerWidth <= 768) {
+            drawerBackdrop.classList.add("active");
+        }
+        planDetailDrawer.classList.add("open");
+        document.body.classList.add("drawer-open");
+
+        if (window.innerWidth <= 768) {
+            document.body.style.overflow = "hidden"; // 모바일에서만 배경 스크롤 방지
+        } else {
+            document.body.style.overflow = ""; // 데스크톱에서는 메인창 자유 스크롤 및 동시 조작 허용
+        }
+    }
+}
+
+function closePlanDrawer() {
+    if (planDetailDrawer) {
+        if (drawerBackdrop) {
+            drawerBackdrop.classList.remove("active");
+        }
+        planDetailDrawer.classList.remove("open");
+        document.body.classList.remove("drawer-open");
+        document.body.style.overflow = "";
+    }
+}
+
+// 드로어 닫기 이벤트 리스너 등록
+if (drawerCloseBtn) {
+    drawerCloseBtn.addEventListener("click", closePlanDrawer);
+}
+if (drawerBackdrop) {
+    drawerBackdrop.addEventListener("click", closePlanDrawer);
+}
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && planDetailDrawer && planDetailDrawer.classList.contains("open")) {
+        closePlanDrawer();
+    }
+});
+
+// 창 크기 변경 시 모바일/데스크톱 반응형 스크롤 및 딤 오버레이 동적 조정
+window.addEventListener("resize", () => {
+    if (planDetailDrawer && planDetailDrawer.classList.contains("open")) {
+        if (window.innerWidth <= 768) {
+            if (drawerBackdrop) drawerBackdrop.classList.add("active");
+            document.body.style.overflow = "hidden";
+        } else {
+            if (drawerBackdrop) drawerBackdrop.classList.remove("active");
+            document.body.style.overflow = "";
+        }
+    }
+});
+
 // 페이지 시작
 document.addEventListener("DOMContentLoaded", loadPlans);
 
@@ -77,7 +173,9 @@ async function loadPlans() {
             planListSection.classList.add("hidden");
             currentPlanSection.classList.add("hidden");
             if (historySection) historySection.classList.add("hidden");
+            if (executionSection) executionSection.classList.add("hidden");
             showCreateMode();
+            await loadSeeData();
             return;
         }
 
@@ -99,9 +197,16 @@ async function loadPlans() {
 
         currentPlanSection.classList.remove("hidden");
         if (historySection) historySection.classList.remove("hidden");
+        if (executionSection) executionSection.classList.remove("hidden");
 
         // [T06-C08] 선택된 계획의 수정 이력(고치기 전 계획들) 로드
         await loadPlanHistory(selectedPlanId);
+
+        // [Do] 선택된 계획의 실행 기록 로드
+        await loadPlanExecutions(selectedPlanId);
+
+        // [See] 돌아보기 대시보드 통계 로드
+        await loadSeeData();
 
         if (!editing) {
             showViewMode();
@@ -366,8 +471,8 @@ function renderPlanList(plansToRender = allPlans) {
                     ? `<button type="button" class="plan-revert-btn" title="이 계획을 다시 진행중으로 변경">↺ 다시 진행</button>`
                     : `<button type="button" class="plan-complete-btn" title="이 계획을 완료로 변경">✓ 완료하기</button>`
                 }
-                <button type="button" class="plan-select-btn">
-                    ${plan.id === selectedPlanId ? "선택됨" : "보기"}
+                <button type="button" class="plan-select-btn" title="계획 상세 및 수정 이력 열기">
+                    ${plan.id === selectedPlanId ? "상세보기 ❯" : "상세보기 ❯"}
                 </button>
                 <button type="button" class="plan-delete-btn" title="계획 삭제">
                     삭제
@@ -383,7 +488,7 @@ function renderPlanList(plansToRender = allPlans) {
             });
         });
 
-        // 카드 클릭 시 선택 (재배치 모드가 아닐 때, 또는 상태/삭제/화살표 버튼이 아닐 때)
+        // 카드 클릭 시 선택 및 우측 슬라이드 드로어 열기 (재배치 모드가 아닐 때, 또는 상태/삭제/화살표 버튼이 아닐 때)
         item.onclick = (e) => {
             if (e.target.closest(".plan-delete-btn") ||
                 e.target.closest(".reorder-arrow-btn") ||
@@ -394,6 +499,7 @@ function renderPlanList(plansToRender = allPlans) {
             }
             if (isReorderMode && !e.target.closest(".plan-select-btn")) return;
             selectPlan(plan.id);
+            openPlanDrawer();
         };
 
         // 완료하기 / 다시 진행 버튼 이벤트
@@ -401,7 +507,8 @@ function renderPlanList(plansToRender = allPlans) {
         if (statusActionBtn) {
             statusActionBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                togglePlanStatus(plan.id);
+                const target = isCompleted ? "진행중" : "완료";
+                togglePlanStatus(plan.id, target);
             });
         }
 
@@ -470,13 +577,33 @@ function renderPlanList(plansToRender = allPlans) {
     });
 }
 
+let isStatusUpdating = false;
+
 // 계획 상태 전환 (진행중 <-> 완료)
-async function togglePlanStatus(id) {
+// [요구사항 4 & 5] 완료 버튼을 2번 눌러도 완료 기록은 한번만 남고, 돌아보기 완료 수도 1만 증가하도록 방어
+async function togglePlanStatus(id, explicitStatus = null) {
+    if (isStatusUpdating) {
+        return;
+    }
+    isStatusUpdating = true;
+
+    // 더블 클릭 및 중복 전송 방지: 버튼 비활성화 시각 효과
+    const buttons = document.querySelectorAll(".plan-complete-btn, .plan-revert-btn, #current-status-btn");
+    buttons.forEach(b => {
+        b.style.pointerEvents = "none";
+        b.style.opacity = "0.6";
+    });
+
     try {
+        const bodyData = {};
+        if (explicitStatus) {
+            bodyData.status = explicitStatus;
+        }
+
         const response = await fetch(`/api/plan/${id}/status`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({})
+            body: JSON.stringify(bodyData)
         });
         const result = await response.json();
 
@@ -487,10 +614,17 @@ async function togglePlanStatus(id) {
 
         showStatus(result.message, "success");
         await loadPlans();
+        await loadSeeData();
 
     } catch (error) {
         console.error(error);
         showStatus("서버와 연결할 수 없습니다.", "error");
+    } finally {
+        isStatusUpdating = false;
+        buttons.forEach(b => {
+            b.style.pointerEvents = "";
+            b.style.opacity = "";
+        });
     }
 }
 
@@ -577,6 +711,9 @@ function selectPlan(id) {
         // [T06-C08] 선택된 계획의 수정 이력(고치기 전 계획) 불러오기
         loadPlanHistory(id);
 
+        // [Do] 선택된 계획의 실행 기록(이전 기록 누적 보존) 불러오기
+        loadPlanExecutions(id);
+
         if (editing) {
             showEditMode();
         } else {
@@ -594,6 +731,10 @@ function displayPlan(plan) {
     if (displayStatusBadge) {
         displayStatusBadge.textContent = status;
         displayStatusBadge.className = `plan-status-badge status-${status}`;
+    }
+
+    if (targetPlanBadge) {
+        targetPlanBadge.textContent = `[선택: ${plan.title}]`;
     }
 
     // 상태 전환 버튼
@@ -783,6 +924,7 @@ function escapeHtml(text) {
 
 // 새로운 계획 작성 모드
 function showCreateMode() {
+    closePlanDrawer(); // 새 계획 작성 시 열려있던 드로어 닫기
     editing = false;
 
     formTitle.textContent = "새 계획 작성";
@@ -803,6 +945,8 @@ function showCreateMode() {
     const nextRank = allPlans.length + 1;
     formPriorityDisplay.textContent = `${nextRank}순위 (자동 배정)`;
 
+    if (executionSection) executionSection.classList.add("hidden");
+
     formSection.scrollIntoView({ behavior: "smooth" });
 }
 
@@ -821,12 +965,17 @@ function showViewMode() {
 
     if (currentPlan) {
         formPriorityDisplay.textContent = currentPlan.current_priority || "1순위";
+        if (executionSection) executionSection.classList.remove("hidden");
     }
 }
 
 // 수정 모드
 function showEditMode() {
     if (!currentPlan) return;
+
+    if (window.innerWidth <= 768) {
+        closePlanDrawer(); // 모바일에서는 화면 공간 확보를 위해 드로어 닫기
+    }
 
     editing = true;
 
@@ -972,6 +1121,7 @@ async function deletePlan(id, title) {
         }
 
         showStatus(result.message, "success");
+        closePlanDrawer(); // 삭제 시 열려있던 드로어 닫기
 
         if (selectedPlanId === id) {
             selectedPlanId = null;
@@ -988,6 +1138,9 @@ async function deletePlan(id, title) {
             applyFiltersAndRender();
         }
 
+        // 돌아보기 데이터 갱신
+        await loadSeeData();
+
     } catch (error) {
         console.error(error);
         showStatus("서버와 연결할 수 없습니다.", "error");
@@ -998,10 +1151,12 @@ async function deletePlan(id, title) {
 editButton.addEventListener("click", showEditMode);
 
 // 상태 토글 버튼 이벤트 (현재 계획 상세 영역)
+// [요구사항 4 & 5] 명시적인 대상 상태를 전달하여 멱등성 및 단일 완료 기록 보장
 if (currentStatusBtn) {
     currentStatusBtn.addEventListener("click", () => {
         if (currentPlan) {
-            togglePlanStatus(currentPlan.id);
+            const target = (currentPlan.status === "완료") ? "진행중" : "완료";
+            togglePlanStatus(currentPlan.id, target);
         }
     });
 }
@@ -1077,4 +1232,601 @@ function showStatus(message, type = "") {
         statusMessage.textContent = "";
         statusMessage.className = "status";
     }, 3000);
+}
+
+
+// ==========================================================
+// ⚡ Section 04: 실행 기록 (Do) 로직
+// [요구사항 1, 2, 3] 시작/끝 시각, 실제 소요 시간, 막혔던 이유 저장 및 이전 기록 누적 보존
+// ==========================================================
+
+// 현재 로컬 일시 문자열 생성 (YYYY-MM-DDTHH:mm)
+// zeroMinutes: true 이면 분을 00으로 고정
+function getLocalDateTimeString(date = new Date(), zeroMinutes = false) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const Y = date.getFullYear();
+    const M = pad(date.getMonth() + 1);
+    const D = pad(date.getDate());
+    const h = pad(date.getHours());
+    const m = zeroMinutes ? "00" : pad(date.getMinutes());
+    return `${Y}-${M}-${D}T${h}:${m}`;
+}
+
+// 일시 포맷 (T를 공백으로 변경)
+function formatDateTime(dtStr) {
+    if (!dtStr) return "";
+    return dtStr.replace("T", " ");
+}
+
+// 특정 입력창의 분을 :00 정각으로 설정하는 헬퍼
+function setMinuteToZero(input) {
+    if (!input) return;
+    if (input.value) {
+        input.value = input.value.slice(0, 14) + "00";
+    } else {
+        input.value = getLocalDateTimeString(new Date(), true);
+    }
+}
+
+// [요구사항 1] 시작 시각에 맞춰 끝 시각의 최소값(min)을 설정하고, 끝 시각이 시작 시각보다 앞서지 않도록 자동 조정
+function updateEndTimeMin() {
+    if (!execStartTimeInput || !execEndTimeInput) return;
+    const startVal = execStartTimeInput.value;
+    if (startVal) {
+        execEndTimeInput.min = startVal;
+        // 만약 이미 입력된 끝 시각이 시작 시각보다 이전이라면 시작 시각으로 자동 조정
+        if (execEndTimeInput.value && execEndTimeInput.value < startVal) {
+            execEndTimeInput.value = startVal;
+            showStatus("끝 시각이 시작 시각보다 이전이어서 시작 시각과 같게 자동 조정되었습니다.", "info");
+            autoCalculateActualMinutes();
+        }
+    } else {
+        execEndTimeInput.min = "";
+    }
+}
+
+// [요구사항 1] 끝 시각 변경 시 시작 시각보다 이전인지 검증
+function validateEndTimeNotBeforeStart() {
+    if (!execStartTimeInput || !execEndTimeInput) return;
+    const startVal = execStartTimeInput.value;
+    const endVal = execEndTimeInput.value;
+    if (startVal && endVal && endVal < startVal) {
+        execEndTimeInput.value = startVal;
+        showStatus("끝 시각은 시작 시각보다 이전일 수 없습니다. 시작 시각으로 자동 조정되었습니다.", "error");
+        autoCalculateActualMinutes();
+    }
+}
+
+// [요구사항 2] 브라우저(크롬 등)의 datetime-local에서 빈 분 필드에 위 화살표 입력 시 01부터 시작하는 현상을 방지하고 00부터 시작하도록 처리
+function attachMinuteZeroHandler(input) {
+    if (!input) return;
+
+    let previousVal = input.value;
+    let upKeyPressed = false;
+
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowUp") {
+            upKeyPressed = true;
+        } else {
+            upKeyPressed = false;
+        }
+    });
+
+    input.addEventListener("input", () => {
+        const currentVal = input.value;
+        // 분이 방금 선택되면서 :01로 처음 입력된 경우 (이전 값이 비었거나 :00이 아니었던 상태에서 Up키 등으로 01이 됨) -> 00으로 시작하도록 보정
+        if (currentVal && currentVal.endsWith(":01")) {
+            if (!previousVal || (!previousVal.endsWith(":00") && upKeyPressed)) {
+                input.value = currentVal.slice(0, -2) + "00";
+            }
+        }
+        previousVal = input.value;
+    });
+
+    input.addEventListener("change", () => {
+        previousVal = input.value;
+    });
+}
+
+// 시작/끝 시각 입력 시 실제로 걸린 시간(분) 자동 계산
+function autoCalculateActualMinutes() {
+    if (!execStartTimeInput || !execEndTimeInput || !execActualMinutesInput) return;
+    const startVal = execStartTimeInput.value;
+    const endVal = execEndTimeInput.value;
+    if (startVal && endVal) {
+        const start = new Date(startVal);
+        const end = new Date(endVal);
+        const diffMs = end - start;
+        if (diffMs >= 0) {
+            const minutes = Math.round(diffMs / 60000);
+            execActualMinutesInput.value = minutes;
+        } else {
+            execActualMinutesInput.value = 0;
+        }
+    }
+}
+
+// 특정 계획의 실행 기록 로드
+async function loadPlanExecutions(planId) {
+    if (!executionSection) return;
+    if (!planId) {
+        executionSection.classList.add("hidden");
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/plan/${planId}/executions`);
+        const data = await response.json();
+        const executions = data.executions || [];
+        currentPlanExecutions = executions;
+        const totalMinutes = data.total_actual_minutes || 0;
+        renderPlanExecutions(executions, totalMinutes);
+    } catch (error) {
+        console.error("실행 기록 조회 실패:", error);
+    }
+}
+
+// 실행 기록 목록 렌더링
+function renderPlanExecutions(executions, totalMinutes) {
+    if (!executionSection) return;
+    executionSection.classList.remove("hidden");
+
+    if (executionCountBadge) {
+        executionCountBadge.textContent = `실행 ${executions.length}건`;
+    }
+    if (execHistoryCount) {
+        execHistoryCount.textContent = executions.length;
+    }
+    if (execTotalMinutes) {
+        execTotalMinutes.textContent = formatMinutes(totalMinutes);
+    }
+
+    if (!executions || executions.length === 0) {
+        if (executionEmpty) executionEmpty.classList.remove("hidden");
+        if (executionTableWrapper) executionTableWrapper.classList.add("hidden");
+        if (executionListBody) executionListBody.innerHTML = "";
+        return;
+    }
+
+    if (executionEmpty) executionEmpty.classList.add("hidden");
+    if (executionTableWrapper) executionTableWrapper.classList.remove("hidden");
+    if (executionListBody) executionListBody.innerHTML = "";
+
+    const totalCount = executions.length;
+    executions.forEach((item, index) => {
+        const tr = document.createElement("tr");
+        const roundNum = totalCount - index;
+
+        const blockerHtml = item.blocker_reason && item.blocker_reason.trim()
+            ? `<span class="blocker-pill" title="${escapeHtml(item.blocker_reason)}">🚧 ${escapeHtml(item.blocker_reason)}</span>`
+            : `<span class="no-blocker">-</span>`;
+
+        tr.innerHTML = `
+            <td><strong>#${roundNum}회차</strong></td>
+            <td style="font-size: 12px; color: #475569;">
+                <div>시작: ${escapeHtml(formatDateTime(item.start_time))}</div>
+                <div>종료: ${escapeHtml(formatDateTime(item.end_time))}</div>
+            </td>
+            <td><strong>${escapeHtml(formatMinutes(item.actual_minutes))}</strong></td>
+            <td>${blockerHtml}</td>
+            <td style="font-size: 12px; color: #64748b;">${escapeHtml(item.memo || "-")}</td>
+            <td>
+                <button type="button" class="exec-delete-btn" title="이 실행 기록 삭제">
+                    삭제
+                </button>
+            </td>
+        `;
+
+        const delBtn = tr.querySelector(".exec-delete-btn");
+        if (delBtn) {
+            delBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                deleteExecution(item.id, item.plan_id);
+            });
+        }
+
+        executionListBody.appendChild(tr);
+    });
+}
+
+// 실행 기록 저장 이벤트 핸들러 (옵션 B: 시간대 겹침 시 확인 창 표시)
+async function handleExecutionSubmit(event, confirmedOverlap = false) {
+    if (event && event.preventDefault) event.preventDefault();
+
+    if (!selectedPlanId) {
+        showStatus("먼저 실행을 기록할 계획을 선택해주세요.", "error");
+        return;
+    }
+
+    const startTime = execStartTimeInput.value;
+    const endTime = execEndTimeInput.value;
+    const actualMinutes = Number(execActualMinutesInput.value);
+    const blockerReason = execBlockerReasonInput ? execBlockerReasonInput.value.trim() : "";
+    const memo = execMemoInput ? execMemoInput.value.trim() : "";
+    const markCompleted = execMarkCompleted ? execMarkCompleted.checked : false;
+
+    if (!startTime || !endTime) {
+        showStatus("실행 시작 시각과 끝 시각을 모두 입력해주세요.", "error");
+        return;
+    }
+
+    if (startTime > endTime) {
+        showStatus("시작 시각은 끝 시각보다 늦을 수 없습니다.", "error");
+        return;
+    }
+
+    // 1. 완전 중복 검사 (시작 시각과 끝 시각이 동일한 경우) -> 엄격 차단
+    const isExactDuplicate = currentPlanExecutions && currentPlanExecutions.some(item =>
+        item.start_time === startTime && item.end_time === endTime
+    );
+
+    if (isExactDuplicate) {
+        const errorMsg = "동일한 시작 시각과 끝 시각을 가진 실행 기록이 이미 등록되어 있습니다. 중복으로 저장할 수 없습니다.";
+        showStatus(errorMsg, "error");
+        alert(`⚠️ 실행 기록 중복 오류\n\n${errorMsg}\n\n• 시작 시각: ${formatDateTime(startTime)}\n• 끝 시각: ${formatDateTime(endTime)}`);
+        execStartTimeInput.focus();
+        return;
+    }
+
+    // 2. 시간대 겹침 검사 (동일 계획 내 겹침 확인) -> 옵션 B: 경고 확인창(confirm) 띄우기
+    if (!confirmedOverlap && currentPlanExecutions) {
+        const overlapping = currentPlanExecutions.filter(item =>
+            item.start_time < endTime && item.end_time > startTime
+        );
+
+        if (overlapping.length > 0) {
+            const overlapLines = overlapping.map(item =>
+                `• ${formatDateTime(item.start_time)} ~ ${formatDateTime(item.end_time)} (${formatMinutes(item.actual_minutes)})`
+            ).join("\n");
+
+            const proceed = confirm(
+                `⚠️ 실행 시간 중복(겹침) 안내\n\n` +
+                `입력하신 시간이 기존 실행 기록과 일부 겹칩니다:\n` +
+                `${overlapLines}\n\n` +
+                `• 새 기록: ${formatDateTime(startTime)} ~ ${formatDateTime(endTime)}\n\n` +
+                `시간이 겹쳐도 그대로 저장하시겠습니까?`
+            );
+
+            if (!proceed) {
+                showStatus("실행 기록 저장을 취소했습니다. 시작/끝 시각을 다시 확인해주세요.", "info");
+                execStartTimeInput.focus();
+                return;
+            }
+            confirmedOverlap = true;
+        }
+    }
+
+    if (!actualMinutes || actualMinutes <= 0) {
+        showStatus("실제로 걸린 시간을 1분 이상 입력해주세요.", "error");
+        return;
+    }
+
+    try {
+        if (execSubmitBtn) {
+            execSubmitBtn.disabled = true;
+            execSubmitBtn.textContent = "저장 중...";
+        }
+
+        const response = await fetch(`/api/plan/${selectedPlanId}/execution`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                start_time: startTime,
+                end_time: endTime,
+                actual_minutes: actualMinutes,
+                blocker_reason: blockerReason,
+                memo: memo,
+                mark_completed: markCompleted,
+                confirm_overlap: confirmedOverlap
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            // 다른 계획과의 시간대 겹침 확인 (옵션 B)
+            if (result.overlap && result.overlaps && !confirmedOverlap) {
+                const overlapLines = result.overlaps.map(item =>
+                    `• [${item.plan_title}] ${formatDateTime(item.start_time)} ~ ${formatDateTime(item.end_time)} (${formatMinutes(item.actual_minutes)})`
+                ).join("\n");
+
+                const proceed = confirm(
+                    `⚠️ 실행 시간 중복(겹침) 안내\n\n` +
+                    `입력하신 시간이 다른 계획의 기존 실행 기록과 겹칩니다:\n` +
+                    `${overlapLines}\n\n` +
+                    `• 새 기록: ${formatDateTime(startTime)} ~ ${formatDateTime(endTime)}\n\n` +
+                    `시간이 겹쳐도 그대로 저장하시겠습니까?`
+                );
+
+                if (proceed) {
+                    return handleExecutionSubmit(null, true);
+                } else {
+                    showStatus("실행 기록 저장을 취소했습니다. 시작/끝 시각을 조정해주세요.", "info");
+                    return;
+                }
+            }
+
+            const errorMsg = result.message || "실행 기록 저장 실패";
+            showStatus(errorMsg, "error");
+            if (result.duplicate || response.status === 409) {
+                alert(`⚠️ 실행 기록 중복 오류\n\n${errorMsg}`);
+            }
+            return;
+        }
+
+        showStatus(result.message, "success");
+
+        // 입력 폼 초기화 (막힌 이유, 메모, 완료 체크박스)
+        if (execBlockerReasonInput) execBlockerReasonInput.value = "";
+        if (execMemoInput) execMemoInput.value = "";
+        if (execMarkCompleted) execMarkCompleted.checked = false;
+
+        // 계획 목록, 실행 기록 및 돌아보기 즉시 갱신
+        await loadPlans();
+        await loadPlanExecutions(selectedPlanId);
+        await loadSeeData();
+
+    } catch (error) {
+        console.error(error);
+        showStatus("서버와 연결할 수 없습니다.", "error");
+    } finally {
+        if (execSubmitBtn) {
+            execSubmitBtn.disabled = false;
+            execSubmitBtn.textContent = "+ 실행 기록 저장";
+        }
+    }
+}
+
+// 실행 기록 개별 삭제
+async function deleteExecution(executionId, planId) {
+    if (!confirm("해당 실행 기록을 삭제하시겠습니까?")) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/execution/${executionId}`, {
+            method: "DELETE"
+        });
+        const result = await response.json();
+
+        if (!response.ok) {
+            showStatus(result.message || "삭제 실패", "error");
+            return;
+        }
+
+        showStatus(result.message, "success");
+        await loadPlans();
+        await loadPlanExecutions(planId);
+        await loadSeeData();
+
+    } catch (error) {
+        console.error(error);
+        showStatus("서버와 연결할 수 없습니다.", "error");
+    }
+}
+
+
+// ==========================================================
+// 📊 Section 05: 돌아보기 (See) 로직
+// [요구사항 4, 5] 완료 버튼 2번 눌러도 완료 수 1만 증가, 계획 vs 실행 비교, 막힌 이유 분석
+// ==========================================================
+
+// 돌아보기 데이터 조회 및 렌더링
+async function loadSeeData() {
+    if (!seeSection) return;
+
+    try {
+        const response = await fetch("/api/see");
+        const data = await response.json();
+        if (!data.success) return;
+
+        // KPI 통계 업데이트
+        if (seeCompletedCount) seeCompletedCount.textContent = data.completed_count;
+        if (seeOngoingCount) seeOngoingCount.textContent = data.ongoing_count;
+        if (seeCompletionRate) seeCompletionRate.textContent = data.completion_rate;
+        if (seeProgressFill) {
+            seeProgressFill.style.width = `${Math.min(100, Math.max(0, data.completion_rate))}%`;
+        }
+
+        if (seeTimeSummary) {
+            seeTimeSummary.textContent = `예상 ${formatMinutes(data.total_expected_minutes)} / 실제 ${formatMinutes(data.total_actual_minutes)}`;
+        }
+
+        if (seeTimeDiff) {
+            const diff = data.time_difference;
+            if (diff > 0) {
+                seeTimeDiff.innerHTML = `계획 대비 <strong style="color: #c2410c;">+${formatMinutes(diff)}</strong> 더 소요됨`;
+            } else if (diff < 0) {
+                seeTimeDiff.innerHTML = `계획 대비 <strong style="color: #047857;">-${formatMinutes(Math.abs(diff))}</strong> 절약됨`;
+            } else {
+                seeTimeDiff.textContent = `계획 예상 시간과 실제 소요 시간이 일치함`;
+            }
+        }
+
+        // 막혔던 이유 모아보기 렌더링
+        renderSeeBlockers(data.blockers || []);
+
+        // 계획 vs 실제 실행 비교 분석 표 렌더링
+        renderSeeTable(data.plan_do_summaries || []);
+
+    } catch (error) {
+        console.error("돌아보기 데이터 조회 실패:", error);
+    }
+}
+
+// 막혔던 이유 모아보기 렌더링
+function renderSeeBlockers(blockers) {
+    if (!seeBlockersEmpty || !seeBlockersList) return;
+
+    if (seeBlockerCountTag) {
+        seeBlockerCountTag.textContent = `${blockers.length}건`;
+    }
+
+    if (!blockers || blockers.length === 0) {
+        seeBlockersEmpty.classList.remove("hidden");
+        seeBlockersList.classList.add("hidden");
+        seeBlockersList.innerHTML = "";
+        return;
+    }
+
+    seeBlockersEmpty.classList.add("hidden");
+    seeBlockersList.classList.remove("hidden");
+    seeBlockersList.innerHTML = "";
+
+    blockers.forEach(b => {
+        const card = document.createElement("div");
+        card.className = "blocker-card";
+        card.innerHTML = `
+            <div class="blocker-card-header">
+                <span class="blocker-plan-name">📌 ${escapeHtml(b.plan_title)}</span>
+                <span class="blocker-time">${escapeHtml(formatDateTime(b.created_at))}</span>
+            </div>
+            <div class="blocker-card-body">
+                🚧 ${escapeHtml(b.blocker_reason)}
+            </div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
+                소요: ${escapeHtml(formatMinutes(b.actual_minutes))}
+            </div>
+        `;
+        seeBlockersList.appendChild(card);
+    });
+}
+
+// 계획 vs 실제 실행 비교 분석 표 렌더링 (원래 계획을 덮어쓰지 않고 나란히 비교)
+function renderSeeTable(summaries) {
+    if (!seeTableBody) return;
+    seeTableBody.innerHTML = "";
+
+    if (!summaries || summaries.length === 0) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">등록된 계획이 없습니다.</td>`;
+        seeTableBody.appendChild(tr);
+        return;
+    }
+
+    summaries.forEach(item => {
+        const tr = document.createElement("tr");
+        const isComp = (item.status === "완료");
+
+        const statusBadge = `<span class="plan-status-badge status-${isComp ? "완료" : "진행중"}">${escapeHtml(item.status)}</span>`;
+
+        const expMin = Number(item.current_expected_minutes || 0);
+        const actMin = Number(item.actual_total_minutes || 0);
+
+        let diffBadge = `<span class="diff-badge-zero">-</span>`;
+        if (actMin > 0) {
+            const diff = actMin - expMin;
+            if (diff > 0) {
+                diffBadge = `<span class="diff-badge-plus">+${formatMinutes(diff)}</span>`;
+            } else if (diff < 0) {
+                diffBadge = `<span class="diff-badge-minus">-${formatMinutes(Math.abs(diff))}</span>`;
+            } else {
+                diffBadge = `<span class="diff-badge-zero">0분 (일치)</span>`;
+            }
+        }
+
+        const actText = actMin > 0
+            ? `<strong>${formatMinutes(actMin)}</strong> <span style="font-size: 11px; color: #64748b;">(${item.execution_count}회)</span>`
+            : `<span style="color: #94a3b8;">미실행 (0분)</span>`;
+
+        const completedText = item.completed_at
+            ? `<span style="color: #047857; font-weight: 600;">✓ ${escapeHtml(formatDateTime(item.completed_at))}</span>`
+            : `<span style="color: #94a3b8;">진행중</span>`;
+
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(item.title)}</strong></td>
+            <td>${statusBadge}</td>
+            <td>${escapeHtml(formatMinutes(expMin))}</td>
+            <td>${actText}</td>
+            <td>${diffBadge}</td>
+            <td style="font-size: 12px;">${completedText}</td>
+        `;
+
+        seeTableBody.appendChild(tr);
+    });
+}
+
+// ⚡ Section 04 실행 기록 폼 이벤트 연결
+if (executionForm) {
+    executionForm.addEventListener("submit", handleExecutionSubmit);
+}
+
+// [요구사항 2] 브라우저 분 선택 시 00부터 시작하도록 핸들러 등록
+attachMinuteZeroHandler(execStartTimeInput);
+attachMinuteZeroHandler(execEndTimeInput);
+
+// 시작 시각 '🕒 지금 시각' 버튼
+if (btnNowStart) {
+    btnNowStart.addEventListener("click", () => {
+        if (execStartTimeInput) {
+            execStartTimeInput.value = getLocalDateTimeString();
+            updateEndTimeMin();
+            autoCalculateActualMinutes();
+        }
+    });
+}
+
+// 시작 시각 ':00 정각' 버튼
+if (btnZeroStart) {
+    btnZeroStart.addEventListener("click", () => {
+        if (execStartTimeInput) {
+            setMinuteToZero(execStartTimeInput);
+            updateEndTimeMin();
+            autoCalculateActualMinutes();
+        }
+    });
+}
+
+// 끝 시각 '🕒 지금 시각' 버튼
+if (btnNowEnd) {
+    btnNowEnd.addEventListener("click", () => {
+        if (execEndTimeInput) {
+            execEndTimeInput.value = getLocalDateTimeString();
+            validateEndTimeNotBeforeStart();
+            autoCalculateActualMinutes();
+        }
+    });
+}
+
+// 끝 시각 ':00 정각' 버튼
+if (btnZeroEnd) {
+    btnZeroEnd.addEventListener("click", () => {
+        if (execEndTimeInput) {
+            setMinuteToZero(execEndTimeInput);
+            validateEndTimeNotBeforeStart();
+            autoCalculateActualMinutes();
+        }
+    });
+}
+
+// 시작 시각 입력/변경 시 끝 시각 min 제약 갱신 및 소요 시간 계산
+if (execStartTimeInput) {
+    execStartTimeInput.addEventListener("change", () => {
+        updateEndTimeMin();
+        autoCalculateActualMinutes();
+    });
+    execStartTimeInput.addEventListener("input", () => {
+        updateEndTimeMin();
+        autoCalculateActualMinutes();
+    });
+}
+
+// 끝 시각 입력/변경 시 시작 시각 이전 선택 방지 검증 및 소요 시간 계산
+if (execEndTimeInput) {
+    execEndTimeInput.addEventListener("change", () => {
+        validateEndTimeNotBeforeStart();
+        autoCalculateActualMinutes();
+    });
+    execEndTimeInput.addEventListener("input", () => {
+        validateEndTimeNotBeforeStart();
+        autoCalculateActualMinutes();
+    });
+}
+
+// 📊 Section 05 돌아보기 새로고침 버튼 이벤트
+if (seeRefreshBtn) {
+    seeRefreshBtn.addEventListener("click", async () => {
+        await loadSeeData();
+        showStatus("돌아보기(See) 데이터가 새로고침되었습니다.", "success");
+    });
 }

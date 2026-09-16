@@ -60,6 +60,47 @@ def init_db():
         )
     """)
 
+    # 실행 기록(Do) 보존을 위한 별도 테이블 생성
+    # 시작/끝 시각, 실제 걸린 시간, 막혔던 이유를 저장하며 이전 기록이 사라지지 않고 누적 보존됨
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS execution_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            actual_minutes INTEGER NOT NULL,
+            blocker_reason TEXT NOT NULL DEFAULT '',
+            memo TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 동일한 계획(plan_id)에 같은 시작 시각 및 끝 시각을 가진 실행 기록 중복 방지 인덱스
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_exec_plan_times
+        ON execution_records (plan_id, start_time, end_time)
+    """)
+
+    # 완료 기록 단일 보존을 위한 별도 테이블 생성 (plan_id UNIQUE로 중복 생성 방지)
+    # 완료 버튼을 여러 번 눌러도 완료 기록은 1회만 보존됨
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS completion_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL UNIQUE,
+            completed_at TEXT NOT NULL,
+            FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 기존 '완료' 상태인 계획이 있을 경우 completion_records 동기화 (중복 없이 1회만 등록)
+    cursor_comp = conn.execute("SELECT id, updated_at FROM plans WHERE status = '완료'")
+    for comp_row in cursor_comp.fetchall():
+        conn.execute("""
+            INSERT OR IGNORE INTO completion_records (plan_id, completed_at)
+            VALUES (?, ?)
+        """, (comp_row["id"], comp_row["updated_at"]))
+
     # 기존 데이터베이스 테이블 호환성 유지 (컬럼이 없을 경우 추가)
     cursor = conn.execute("PRAGMA table_info(plans)")
     columns = [row["name"] for row in cursor.fetchall()]
@@ -147,7 +188,10 @@ def get_plans():
 
     sql = """
         SELECT p.*,
-               (SELECT COUNT(*) FROM plan_history h WHERE h.plan_id = p.id) AS history_count
+               (SELECT COUNT(*) FROM plan_history h WHERE h.plan_id = p.id) AS history_count,
+               (SELECT COUNT(*) FROM execution_records e WHERE e.plan_id = p.id) AS execution_count,
+               (SELECT COALESCE(SUM(actual_minutes), 0) FROM execution_records e WHERE e.plan_id = p.id) AS actual_minutes_sum,
+               (SELECT completed_at FROM completion_records c WHERE c.plan_id = p.id) AS completed_at
         FROM plans p
         WHERE 1=1
     """
@@ -233,12 +277,29 @@ def get_plan():
     """, (plan_dict["id"],))
     history = [dict(row) for row in hist_cursor.fetchall()]
 
+    # 실행 기록(execution_records)도 함께 반환
+    exec_cursor = conn.execute("""
+        SELECT *
+        FROM execution_records
+        WHERE plan_id = ?
+        ORDER BY id DESC
+    """, (plan_dict["id"],))
+    executions = [dict(row) for row in exec_cursor.fetchall()]
+
+    # 단일 완료 기록 조회
+    comp_row = conn.execute("SELECT completed_at FROM completion_records WHERE plan_id = ?", (plan_dict["id"],)).fetchone()
+    completed_at = comp_row["completed_at"] if comp_row else None
+
     conn.close()
 
     return jsonify({
         "exists": True,
         "plan": plan_dict,
-        "history": history
+        "history": history,
+        "executions": executions,
+        "execution_count": len(executions),
+        "total_actual_minutes": sum(e["actual_minutes"] for e in executions),
+        "completed_at": completed_at
     })
 
 
@@ -304,7 +365,7 @@ def create_plan():
     # 최초 계획과 현재 계획을 같은 값으로 저장
     cursor = conn.execute("""
         INSERT INTO plans (
-            title,
+            title, 
             tags,
             original_title,
 
@@ -639,6 +700,7 @@ def reorder_plans():
 
 # 계획 상태 변경 (진행중 <-> 완료)
 # 완료로 변경 시 우선순위 맨 아래로 이동
+# [요구사항 4 & 5] 완료 버튼을 2번 눌러도 완료 기록은 1번만 남고 돌아보기 완료 수도 1만 증가하도록 단일성 및 멱등성 보장
 @app.route("/api/plan/<int:plan_id>/status", methods=["PUT", "POST"])
 def update_plan_status(plan_id):
     data = request.get_json(silent=True) or {}
@@ -655,6 +717,32 @@ def update_plan_status(plan_id):
         new_status = "완료" if current["status"] != "완료" else "진행중"
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # [요구사항 4 & 5] 이미 완료된 상태에서 다시 '완료' 요청이 들어온 경우 (중복 클릭 방어)
+    if current["status"] == "완료" and new_status == "완료":
+        # completion_records에 이미 1건만 존재함을 보장하고 그대로 반환
+        conn.execute("""
+            INSERT OR IGNORE INTO completion_records (plan_id, completed_at)
+            VALUES (?, ?)
+        """, (plan_id, now))
+        conn.commit()
+        conn.close()
+        return jsonify({
+            "success": True,
+            "message": "이미 완료 처리된 계획입니다. 완료 기록은 1건으로 유지됩니다.",
+            "status": "완료",
+            "already_completed": True
+        })
+
+    if new_status == "완료":
+        # 완료 기록 단일 삽입 (UNIQUE 제약으로 1건만 보존)
+        conn.execute("""
+            INSERT OR IGNORE INTO completion_records (plan_id, completed_at)
+            VALUES (?, ?)
+        """, (plan_id, now))
+    else:
+        # 진행중으로 복귀 시 completion_records에서 삭제하여 정합성 유지
+        conn.execute("DELETE FROM completion_records WHERE plan_id = ?", (plan_id,))
 
     # 전체 계획 ID를 현재 우선순위 순서대로 조회
     cursor = conn.execute("""
@@ -710,11 +798,267 @@ def update_plan_status(plan_id):
     })
 
 
-# 계획 삭제 (해당 계획의 수정 이력도 함께 삭제)
+# 특정 계획의 모든 실행 기록 가져오기
+@app.route("/api/plan/<int:plan_id>/executions", methods=["GET"])
+def get_plan_executions(plan_id):
+    conn = get_db()
+    cursor = conn.execute("""
+        SELECT *
+        FROM execution_records
+        WHERE plan_id = ?
+        ORDER BY id DESC
+    """, (plan_id,))
+    executions = [dict(row) for row in cursor.fetchall()]
+    total_actual = sum(e["actual_minutes"] for e in executions)
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "plan_id": plan_id,
+        "executions": executions,
+        "count": len(executions),
+        "total_actual_minutes": total_actual
+    })
+
+
+# 실행 기록(Do) 저장
+# [요구사항 1, 2, 3] 시작/끝 시각, 실제 걸린 시간, 막혔던 이유 저장 및 이전 기록 누적 보존
+@app.route("/api/plan/<int:plan_id>/execution", methods=["POST"])
+def add_execution_record(plan_id):
+    data = request.get_json() or {}
+
+    start_time = data.get("start_time", "").strip()
+    end_time = data.get("end_time", "").strip()
+    blocker_reason = data.get("blocker_reason", "").strip()
+    memo = data.get("memo", "").strip()
+    mark_completed = bool(data.get("mark_completed", False))
+    confirm_overlap = bool(data.get("confirm_overlap", False))
+
+    try:
+        actual_minutes = int(data.get("actual_minutes", 0))
+    except (ValueError, TypeError):
+        actual_minutes = 0
+
+    if not start_time or not end_time:
+        return jsonify({
+            "success": False,
+            "message": "실행 시작 시각과 끝 시각을 모두 입력해주세요."
+        }), 400
+
+    if start_time > end_time:
+        return jsonify({
+            "success": False,
+            "message": "시작 시각은 끝 시각보다 늦을 수 없습니다."
+        }), 400
+
+    if actual_minutes <= 0:
+        return jsonify({
+            "success": False,
+            "message": "실제로 걸린 시간을 1분 이상 입력해주세요."
+        }), 400
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db()
+    plan = conn.execute("SELECT * FROM plans WHERE id = ?", (plan_id,)).fetchone()
+    if not plan:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "message": "계획을 찾을 수 없습니다."
+        }), 404
+
+    # 1. 완전 중복 저장 방지: 동일한 계획(plan_id)에 같은 시작 시각과 끝 시각을 가진 실행 기록이 이미 존재하는지 검사
+    existing_exec = conn.execute("""
+        SELECT id FROM execution_records
+        WHERE plan_id = ? AND start_time = ? AND end_time = ?
+    """, (plan_id, start_time, end_time)).fetchone()
+
+    if existing_exec:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "duplicate": True,
+            "message": "동일한 시작 시각과 끝 시각을 가진 실행 기록이 이미 등록되어 있습니다. 중복으로 저장할 수 없습니다."
+        }), 409
+
+    # 2. [옵션 B] 시간대 겹침 검사 (confirm_overlap이 False일 때 겹치는 내역 반환하여 확인 창 유도)
+    if not confirm_overlap:
+        overlap_rows = conn.execute("""
+            SELECT e.id, e.plan_id, e.start_time, e.end_time, e.actual_minutes, p.title AS plan_title
+            FROM execution_records e
+            JOIN plans p ON e.plan_id = p.id
+            WHERE e.start_time < ? AND e.end_time > ?
+            ORDER BY e.start_time ASC
+        """, (end_time, start_time)).fetchall()
+
+        if overlap_rows:
+            overlaps = [dict(r) for r in overlap_rows]
+            conn.close()
+            return jsonify({
+                "success": False,
+                "overlap": True,
+                "overlaps": overlaps,
+                "message": "입력하신 시간이 기존 실행 기록과 일부 겹칩니다."
+            }), 409
+
+    try:
+        # [요구사항 3] 실행 기록을 저장해도 이전의 기록이 사라지지 않게 항상 신규 INSERT로 누적 보존
+        cursor = conn.execute("""
+            INSERT INTO execution_records (
+                plan_id, start_time, end_time, actual_minutes, blocker_reason, memo, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (plan_id, start_time, end_time, actual_minutes, blocker_reason, memo, now))
+        execution_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({
+            "success": False,
+            "duplicate": True,
+            "message": "동일한 시작 시각과 끝 시각을 가진 실행 기록이 이미 등록되어 있습니다. 중복으로 저장할 수 없습니다."
+        }), 409
+
+    # [요구사항 4 & 5] 실행과 함께 완료 처리 요청된 경우 단일성 보장
+    if mark_completed:
+        conn.execute("""
+            INSERT OR IGNORE INTO completion_records (plan_id, completed_at)
+            VALUES (?, ?)
+        """, (plan_id, now))
+
+        if plan["status"] != "완료":
+            # 완료 시 맨 아래 순위로 이동
+            cursor_p = conn.execute("""
+                SELECT id FROM plans WHERE id != ?
+                ORDER BY
+                    CASE
+                        WHEN current_priority LIKE '%순위' THEN CAST(REPLACE(current_priority, '순위', '') AS INTEGER)
+                        ELSE 999999
+                    END ASC
+            """, (plan_id,))
+            other_ids = [r["id"] for r in cursor_p.fetchall()]
+            other_ids.append(plan_id)
+
+            for rank, pid in enumerate(other_ids, start=1):
+                if pid == plan_id:
+                    conn.execute("""
+                        UPDATE plans
+                        SET current_priority = ?, status = '완료', updated_at = ?
+                        WHERE id = ?
+                    """, (f"{rank}순위", now, pid))
+                else:
+                    conn.execute("""
+                        UPDATE plans
+                        SET current_priority = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (f"{rank}순위", now, pid))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "실행 기록이 안전하게 저장되었습니다. 이전 실행 기록도 모두 보존됩니다.",
+        "execution_id": execution_id
+    })
+
+
+# 실행 기록 개별 삭제
+@app.route("/api/execution/<int:execution_id>", methods=["DELETE"])
+def delete_execution_record(execution_id):
+    conn = get_db()
+    conn.execute("DELETE FROM execution_records WHERE id = ?", (execution_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "해당 실행 기록이 삭제되었습니다."
+    })
+
+
+# 돌아보기 (See) 대시보드 통계 및 분석 데이터
+# [요구사항 5] 완료 수는 고유한 완료 계획 수(중복 없는 1:1 완료)를 기반으로 정확히 1만 카운트됨
+@app.route("/api/see", methods=["GET"])
+def get_see_data():
+    conn = get_db()
+
+    # 전체 계획 수
+    total_plans = conn.execute("SELECT COUNT(*) AS cnt FROM plans").fetchone()["cnt"]
+
+    # 완료된 계획 수 (고유 완료 계획 수)
+    completed_plans = conn.execute("SELECT COUNT(*) AS cnt FROM plans WHERE status = '완료'").fetchone()["cnt"]
+
+    # 진행중 계획 수
+    ongoing_plans = conn.execute("SELECT COUNT(*) AS cnt FROM plans WHERE status != '완료'").fetchone()["cnt"]
+
+    # 목표 달성률
+    completion_rate = round((completed_plans / total_plans * 100), 1) if total_plans > 0 else 0
+
+    # 총 계획 예상 시간 (현재 계획 기준)
+    exp_row = conn.execute("SELECT COALESCE(SUM(current_expected_minutes), 0) AS total_exp FROM plans").fetchone()
+    total_expected_minutes = exp_row["total_exp"]
+
+    # 총 실제 소요 시간 (누적된 모든 실행 기록의 합)
+    act_row = conn.execute("SELECT COALESCE(SUM(actual_minutes), 0) AS total_act FROM execution_records").fetchone()
+    total_actual_minutes = act_row["total_act"]
+
+    # 총 실행 기록 수
+    total_executions = conn.execute("SELECT COUNT(*) AS cnt FROM execution_records").fetchone()["cnt"]
+
+    # [요구사항 2] 막혔던 이유 모아보기 (비어있지 않은 사유들)
+    blockers_cursor = conn.execute("""
+        SELECT e.id, e.plan_id, e.blocker_reason, e.actual_minutes, e.created_at, p.title AS plan_title
+        FROM execution_records e
+        JOIN plans p ON e.plan_id = p.id
+        WHERE e.blocker_reason IS NOT NULL AND TRIM(e.blocker_reason) != ''
+        ORDER BY e.id DESC
+    """)
+    blockers = [dict(r) for r in blockers_cursor.fetchall()]
+
+    # 계획 vs 실행 비교 요약 목록 (완료 목표 실행 기록이 원래 계획을 덮어쓰지 않고 나란히 비교)
+    summary_cursor = conn.execute("""
+        SELECT
+            p.id, p.title, p.current_priority, p.status,
+            p.original_expected_minutes, p.current_expected_minutes,
+            c.completed_at,
+            (SELECT COUNT(*) FROM execution_records e WHERE e.plan_id = p.id) AS execution_count,
+            (SELECT COALESCE(SUM(actual_minutes), 0) FROM execution_records e WHERE e.plan_id = p.id) AS actual_total_minutes
+        FROM plans p
+        LEFT JOIN completion_records c ON p.id = c.plan_id
+        ORDER BY
+            CASE WHEN p.status = '완료' THEN 1 ELSE 0 END ASC,
+            CASE
+                WHEN p.current_priority LIKE '%순위' THEN CAST(REPLACE(p.current_priority, '순위', '') AS INTEGER)
+                ELSE 999999
+            END ASC,
+            p.id DESC
+    """)
+    plan_do_summaries = [dict(r) for r in summary_cursor.fetchall()]
+
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "total_plans": total_plans,
+        "completed_count": completed_plans,
+        "ongoing_count": ongoing_plans,
+        "completion_rate": completion_rate,
+        "total_expected_minutes": total_expected_minutes,
+        "total_actual_minutes": total_actual_minutes,
+        "time_difference": total_actual_minutes - total_expected_minutes,
+        "total_executions": total_executions,
+        "blockers": blockers,
+        "plan_do_summaries": plan_do_summaries
+    })
+
+
+# 계획 삭제 (해당 계획의 수정 이력, 실행 기록, 완료 기록도 함께 삭제)
 @app.route("/api/plan/<int:plan_id>", methods=["DELETE"])
 def delete_plan(plan_id):
     conn = get_db()
     conn.execute("DELETE FROM plan_history WHERE plan_id = ?", (plan_id,))
+    conn.execute("DELETE FROM execution_records WHERE plan_id = ?", (plan_id,))
+    conn.execute("DELETE FROM completion_records WHERE plan_id = ?", (plan_id,))
     result = conn.execute("DELETE FROM plans WHERE id = ?", (plan_id,))
     conn.commit()
     deleted = result.rowcount > 0
@@ -728,7 +1072,7 @@ def delete_plan(plan_id):
 
     return jsonify({
         "success": True,
-        "message": "계획과 수정 이력이 삭제되었습니다."
+        "message": "계획과 수정 이력, 실행 및 완료 기록이 모두 삭제되었습니다."
     })
 
 
