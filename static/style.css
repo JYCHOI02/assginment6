@@ -870,6 +870,26 @@ button {
     border: 1px solid #a7f3d0;
 }
 
+.status-지연 {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px solid #fed7aa;
+}
+
+.status-막힘 {
+    background: #fff1f2;
+    color: #be123c;
+    border: 1px solid #fecdd3;
+}
+
+.plan-item.delayed-item {
+    border-left: 4px solid #ea580c;
+}
+
+.plan-item.blocked-item {
+    border-left: 4px solid #e11d48;
+}
+
 .plan-item.completed {
     background: #fafafa;
     border-color: #e5e7eb;
@@ -1238,9 +1258,74 @@ button {
     background: #7c3aed;
 }
 
+/* 기간별 모아보기 툴바 */
+.see-period-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 10px 16px;
+    margin-bottom: 20px;
+}
+
+.see-period-tabs {
+    display: flex;
+    gap: 6px;
+    background: #e2e8f0;
+    padding: 4px;
+    border-radius: 10px;
+}
+
+.period-tab-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.period-tab-btn:hover {
+    color: #1e293b;
+}
+
+.period-tab-btn.active {
+    background: white;
+    color: #7c3aed;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.see-period-range-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.see-period-range-text {
+    font-weight: 700;
+    color: #475569;
+}
+
+.click-hint-badge {
+    background: #ede9fe;
+    color: #6d28d9;
+    padding: 3px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
 .see-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
 }
@@ -1249,11 +1334,12 @@ button {
     background: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 14px;
-    padding: 18px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     transition: all 0.2s ease;
+    position: relative;
 }
 
 .see-kpi-card:hover {
@@ -1261,47 +1347,207 @@ button {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
-.see-kpi-card.highlight-card {
-    background: #f0fdf4;
-    border-color: #bbf7d0;
+.see-kpi-card.clickable {
+    cursor: pointer;
 }
 
-.see-kpi-label {
+.see-kpi-card.clickable:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    border-color: #94a3b8;
+}
+
+.kpi-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.trace-arrow {
+    font-size: 11px;
+    font-weight: 700;
+    color: #94a3b8;
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.see-kpi-card.clickable:hover .trace-arrow {
+    background: #7c3aed;
+    color: white;
+}
+
+/* 다음 계획으로 넘길 한 줄 (Action Item) 박스 스타일 */
+.see-next-action-box {
+    background: #ffffff;
+    border: 1px solid #ddd6fe;
+    border-left: 5px solid #7c3aed;
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 2px 12px rgba(124, 58, 237, 0.06);
+}
+
+.action-lead-badge {
+    background: #7c3aed;
+    color: white;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.next-action-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.action-quick-select {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.action-quick-select select {
+    flex: 1;
+    padding: 6px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #f8fafc;
+    font-size: 13px;
+    color: #334155;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.action-quick-select select:focus {
+    border-color: #7c3aed;
+}
+
+.action-input-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.action-input-row input {
+    flex: 1;
+    padding: 11px 16px;
+    font-size: 14px;
+    border: 1px solid #c4b5fd;
+    border-radius: 10px;
+    outline: none;
+    background: #faf5ff;
+    color: #1e293b;
+    transition: all 0.2s ease;
+}
+
+.action-input-row input:focus {
+    background: white;
+    border-color: #7c3aed;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+
+.action-input-row button {
+    padding: 11px 20px;
     font-size: 13px;
     font-weight: 700;
-    color: #64748b;
+    white-space: nowrap;
+    background: #7c3aed;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
 }
 
-.see-kpi-card.highlight-card .see-kpi-label {
-    color: #166534;
+.action-input-row button:hover {
+    background: #6d28d9;
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
 }
 
-.see-kpi-value {
-    font-size: 30px;
-    font-weight: 800;
-    color: #0f172a;
-    line-height: 1.1;
-}
-
-.see-kpi-card.highlight-card .see-kpi-value {
-    color: #15803d;
-}
-
-.see-kpi-value .unit {
-    font-size: 15px;
-    font-weight: 600;
-    margin-left: 4px;
-    color: #64748b;
-}
-
-.see-kpi-subtext {
+.next-action-recent-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 12px;
-    color: #94a3b8;
+    color: #64748b;
     margin-top: 4px;
 }
 
-.see-kpi-card.highlight-card .see-kpi-subtext {
-    color: #16a34a;
+.recent-title {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.recent-action-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.recent-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #f3e8ff;
+    color: #6b21a8;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #e9d5ff;
+    transition: all 0.15s ease;
+}
+
+.recent-chip:hover {
+    background: #e9d5ff;
+    color: #581c87;
+}
+
+/* 근거 추적 이동 버튼 */
+.trace-link-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    color: #6366f1;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.trace-link-btn:hover {
+    background: #6366f1;
+    color: white;
+}
+
+/* 근거 강조 애니메이션 */
+@keyframes pulseHighlight {
+    0% {
+        box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.6);
+        border-color: #7c3aed;
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(124, 58, 237, 0);
+        border-color: #7c3aed;
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(124, 58, 237, 0);
+    }
+}
+
+.pulse-highlight {
+    animation: pulseHighlight 1.5s ease-in-out 2;
 }
 
 .see-progress-bar {

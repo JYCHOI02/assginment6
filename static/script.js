@@ -84,18 +84,39 @@ const execTotalMinutes = document.getElementById("exec-total-minutes");
 const executionListBody = document.getElementById("execution-list-body");
 
 // 📊 Section 05: 돌아보기 (See) UI 요소
+let currentSeePeriod = "all";
+let seeDataCache = null;
+
 const seeSection = document.getElementById("see-section");
 const seeRefreshBtn = document.getElementById("see-refresh-btn");
+const seePeriodTabs = document.querySelectorAll(".period-tab-btn");
+const seePeriodRangeText = document.getElementById("see-period-range-text");
+
+const seeTotalPlansCount = document.getElementById("see-total-plans-count");
 const seeCompletedCount = document.getElementById("see-completed-count");
-const seeOngoingCount = document.getElementById("see-ongoing-count");
+const seeDelayedCount = document.getElementById("see-delayed-count");
+const seeBlockedCount = document.getElementById("see-blocked-count");
 const seeCompletionRate = document.getElementById("see-completion-rate");
 const seeProgressFill = document.getElementById("see-progress-fill");
 const seeTimeSummary = document.getElementById("see-time-summary");
 const seeTimeDiff = document.getElementById("see-time-diff");
+
+const kpiCardTotal = document.getElementById("kpi-card-total");
+const kpiCardCompleted = document.getElementById("kpi-card-completed");
+const kpiCardDelayed = document.getElementById("kpi-card-delayed");
+const kpiCardBlocked = document.getElementById("kpi-card-blocked");
+const kpiCardTime = document.getElementById("kpi-card-time");
+
 const seeBlockerCountTag = document.getElementById("see-blocker-count-tag");
 const seeBlockersEmpty = document.getElementById("see-blockers-empty");
 const seeBlockersList = document.getElementById("see-blockers-list");
 const seeTableBody = document.getElementById("see-table-body");
+
+const actionBlockerSelect = document.getElementById("action-blocker-select");
+const nextActionInput = document.getElementById("next-action-input");
+const btnTransferToPlan = document.getElementById("btn-transfer-to-plan");
+const nextActionRecentWrap = document.getElementById("next-action-recent-wrap");
+const recentActionChips = document.getElementById("recent-action-chips");
 
 // 🗂 Slide-over Drawer (옵션 B) UI 요소
 const drawerBackdrop = document.getElementById("drawer-backdrop");
@@ -322,9 +343,15 @@ function applyFiltersAndRender() {
 
     // 조건별 필터링
     let filtered = allPlans.filter(plan => {
-        // 1. 상태 필터 (진행중 / 완료)
-        if (status !== "all" && plan.status !== status) {
-            return false;
+        // 1. 상태 필터 (진행중 / 완료 / 지연 / 막힘)
+        if (status !== "all") {
+            if (status === "지연") {
+                if (!plan.is_delayed) return false;
+            } else if (status === "막힘") {
+                if (!plan.blocker_count || plan.blocker_count <= 0) return false;
+            } else if (plan.status !== status) {
+                return false;
+            }
         }
 
         // 2. 우선순위 필터 (1순위, 2순위, 3순위)
@@ -443,6 +470,13 @@ function renderPlanList(plansToRender = allPlans) {
             priorityClass = "plan-priority-rank";
         }
 
+        if (plan.is_delayed) {
+            item.classList.add("delayed-item");
+        }
+        if (plan.blocker_count && plan.blocker_count > 0) {
+            item.classList.add("blocked-item");
+        }
+
         const tagsHtml = renderTagBadgesHtml(plan.tags);
 
         item.innerHTML = `
@@ -457,6 +491,8 @@ function renderPlanList(plansToRender = allPlans) {
                     <span class="plan-status-badge status-${isCompleted ? "완료" : "진행중"}">
                         ${isCompleted ? "완료" : "진행중"}
                     </span>
+                    ${plan.is_delayed ? `<span class="plan-status-badge status-지연" title="마감일 초과 미완료 (T06-C30)">⏰ 지연</span>` : ""}
+                    ${(plan.blocker_count && plan.blocker_count > 0) ? `<span class="plan-status-badge status-막힘" title="실행 중 병목 발생">🚧 막힘</span>` : ""}
                     <span class="plan-priority-badge ${priorityClass}">${escapeHtml(pVal)}</span>
                     ${(plan.history_count && plan.history_count > 0) ? `<span class="plan-history-count-badge" title="고치기 전 계획 ${plan.history_count}건 보존 중">이력 ${plan.history_count}건</span>` : ""}
                 </div>
@@ -1611,19 +1647,28 @@ async function deleteExecution(executionId, planId) {
 // [요구사항 4, 5] 완료 버튼 2번 눌러도 완료 수 1만 증가, 계획 vs 실행 비교, 막힌 이유 분석
 // ==========================================================
 
-// 돌아보기 데이터 조회 및 렌더링
+// 돌아보기 데이터 조회 및 렌더링 (첫 행동 1: 기간별로 계획·완료·지연·막힘 & 예상/실제 시간 모아보기)
 async function loadSeeData() {
     if (!seeSection) return;
 
     try {
-        const response = await fetch("/api/see");
+        const response = await fetch(`/api/see?period=${encodeURIComponent(currentSeePeriod)}`);
         const data = await response.json();
         if (!data.success) return;
 
+        seeDataCache = data;
+
+        // 기간 표시 텍스트 갱신
+        if (seePeriodRangeText) {
+            seePeriodRangeText.textContent = data.range_label || "전체 기간 집계";
+        }
+
         // KPI 통계 업데이트
-        if (seeCompletedCount) seeCompletedCount.textContent = data.completed_count;
-        if (seeOngoingCount) seeOngoingCount.textContent = data.ongoing_count;
-        if (seeCompletionRate) seeCompletionRate.textContent = data.completion_rate;
+        if (seeTotalPlansCount) seeTotalPlansCount.textContent = data.total_plans || 0;
+        if (seeCompletedCount) seeCompletedCount.textContent = data.completed_count || 0;
+        if (seeDelayedCount) seeDelayedCount.textContent = data.delayed_count || 0;
+        if (seeBlockedCount) seeBlockedCount.textContent = data.blocked_count || 0;
+        if (seeCompletionRate) seeCompletionRate.textContent = data.completion_rate || 0;
         if (seeProgressFill) {
             seeProgressFill.style.width = `${Math.min(100, Math.max(0, data.completion_rate))}%`;
         }
@@ -1639,7 +1684,7 @@ async function loadSeeData() {
             } else if (diff < 0) {
                 seeTimeDiff.innerHTML = `계획 대비 <strong style="color: #047857;">-${formatMinutes(Math.abs(diff))}</strong> 절약됨`;
             } else {
-                seeTimeDiff.textContent = `계획 예상 시간과 실제 소요 시간이 일치함`;
+                seeTimeDiff.textContent = `계획 예상 시간과 실제 소요 시간 일치`;
             }
         }
 
@@ -1649,9 +1694,70 @@ async function loadSeeData() {
         // 계획 vs 실제 실행 비교 분석 표 렌더링
         renderSeeTable(data.plan_do_summaries || []);
 
+        // 고칠 점 선택용 막힘 사유 드롭다운 갱신
+        populateBlockerSelect(data.blockers || []);
+
+        // 최근 전달된 고칠 점 목록 렌더링
+        renderRecentActions(data.recent_actions || []);
+
     } catch (error) {
         console.error("돌아보기 데이터 조회 실패:", error);
     }
+}
+
+// 막혔던 이유 드롭다운 채우기
+function populateBlockerSelect(blockers) {
+    if (!actionBlockerSelect) return;
+    actionBlockerSelect.innerHTML = `<option value="">-- 막혔던 이유 목록에서 선택 (클릭 시 자동 입력) --</option>`;
+
+    if (!blockers || blockers.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "(기록된 막힘 사유가 없습니다)";
+        opt.disabled = true;
+        actionBlockerSelect.appendChild(opt);
+        return;
+    }
+
+    const seenReasons = new Set();
+    blockers.forEach(b => {
+        const reason = (b.blocker_reason || "").trim();
+        if (reason && !seenReasons.has(reason)) {
+            seenReasons.add(reason);
+            const opt = document.createElement("option");
+            opt.value = reason;
+            opt.textContent = `[${b.plan_title}] ${reason}`;
+            actionBlockerSelect.appendChild(opt);
+        }
+    });
+}
+
+// 최근 다음 계획으로 넘긴 고칠 점 칩 렌더링
+function renderRecentActions(actions) {
+    if (!nextActionRecentWrap || !recentActionChips) return;
+
+    if (!actions || actions.length === 0) {
+        nextActionRecentWrap.classList.add("hidden");
+        recentActionChips.innerHTML = "";
+        return;
+    }
+
+    nextActionRecentWrap.classList.remove("hidden");
+    recentActionChips.innerHTML = "";
+
+    actions.forEach(act => {
+        const chip = document.createElement("span");
+        chip.className = "recent-chip";
+        chip.title = "클릭하여 다시 가져오기";
+        chip.innerHTML = `<span>✏️ ${escapeHtml(act.action_text)}</span>`;
+        chip.addEventListener("click", () => {
+            if (nextActionInput) {
+                nextActionInput.value = act.action_text;
+                nextActionInput.focus();
+            }
+        });
+        recentActionChips.appendChild(chip);
+    });
 }
 
 // 막혔던 이유 모아보기 렌더링
@@ -1684,22 +1790,47 @@ function renderSeeBlockers(blockers) {
             <div class="blocker-card-body">
                 🚧 ${escapeHtml(b.blocker_reason)}
             </div>
-            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">
-                소요: ${escapeHtml(formatMinutes(b.actual_minutes))}
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+                <span style="font-size: 11px; color: #64748b;">
+                    소요: ${escapeHtml(formatMinutes(b.actual_minutes))}
+                </span>
+                <button type="button" class="trace-link-btn" title="이 문제를 고칠 점으로 입력창에 복사">
+                    이 문제 고치기 ↗
+                </button>
             </div>
         `;
+
+        // '이 문제 고치기' 버튼 클릭 시 바로 고칠 점 입력창에 반영
+        const fixBtn = card.querySelector(".trace-link-btn");
+        if (fixBtn) {
+            fixBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (nextActionInput) {
+                    nextActionInput.value = `[개선] ${b.blocker_reason} 방지 및 대책 마련`;
+                    const actionBox = document.getElementById("see-next-action-box");
+                    if (actionBox) {
+                        actionBox.scrollIntoView({ behavior: "smooth", block: "center" });
+                        actionBox.classList.remove("pulse-highlight");
+                        void actionBox.offsetWidth;
+                        actionBox.classList.add("pulse-highlight");
+                    }
+                    nextActionInput.focus();
+                }
+            });
+        }
+
         seeBlockersList.appendChild(card);
     });
 }
 
-// 계획 vs 실제 실행 비교 분석 표 렌더링 (원래 계획을 덮어쓰지 않고 나란히 비교)
+// 계획 vs 실제 실행 비교 분석 표 렌더링 (원래 계획을 덮어쓰지 않고 나란히 비교 & 근거 추적 링크)
 function renderSeeTable(summaries) {
     if (!seeTableBody) return;
     seeTableBody.innerHTML = "";
 
     if (!summaries || summaries.length === 0) {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">등록된 계획이 없습니다.</td>`;
+        tr.innerHTML = `<td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">선택된 기간에 해당하는 계획이 없습니다.</td>`;
         seeTableBody.appendChild(tr);
         return;
     }
@@ -1733,16 +1864,210 @@ function renderSeeTable(summaries) {
             ? `<span style="color: #047857; font-weight: 600;">✓ ${escapeHtml(formatDateTime(item.completed_at))}</span>`
             : `<span style="color: #94a3b8;">진행중</span>`;
 
+        const delayBadge = item.is_delayed ? `<span class="plan-status-badge status-지연" style="font-size: 10px; margin-left: 4px;">지연</span>` : "";
+
         tr.innerHTML = `
-            <td><strong>${escapeHtml(item.title)}</strong></td>
+            <td>
+                <strong>${escapeHtml(item.title)}</strong>
+                ${delayBadge}
+            </td>
             <td>${statusBadge}</td>
             <td>${escapeHtml(formatMinutes(expMin))}</td>
             <td>${actText}</td>
             <td>${diffBadge}</td>
             <td style="font-size: 12px;">${completedText}</td>
+            <td>
+                <button type="button" class="trace-link-btn row-trace-btn" title="이 계획의 실행 및 수정 기록 보기">
+                    기록 보기 ↗
+                </button>
+            </td>
         `;
 
+        const traceBtn = tr.querySelector(".row-trace-btn");
+        if (traceBtn) {
+            traceBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                selectPlan(item.id);
+                openPlanDrawer();
+                loadPlanExecutions(item.id);
+                showStatus(`'${item.title}' 계획의 근거 기록(실행 및 수정 이력)을 열었습니다.`, "info");
+            });
+        }
+
         seeTableBody.appendChild(tr);
+    });
+}
+
+// -------------------------------------------------------------
+// 🔗 첫 행동 2: 집계 숫자를 눌렀을 때 그 숫자가 나온 기록으로 갈 수 있게 연결
+// -------------------------------------------------------------
+
+// 1. [계획 수] 카드 클릭 -> 전체 계획 목록으로 이동
+if (kpiCardTotal) {
+    kpiCardTotal.addEventListener("click", () => {
+        if (filterStatus) filterStatus.value = "all";
+        applyFiltersAndRender();
+        if (planListSection) {
+            planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            planListSection.classList.remove("pulse-highlight");
+            void planListSection.offsetWidth;
+            planListSection.classList.add("pulse-highlight");
+        }
+        showStatus(`📋 전체 계획 목록 (${seeDataCache ? seeDataCache.total_plans : 0}개)으로 이동했습니다.`, "info");
+    });
+}
+
+// 2. [완료 수] 카드 클릭 -> 완료된 계획 목록으로 필터링 & 이동
+if (kpiCardCompleted) {
+    kpiCardCompleted.addEventListener("click", () => {
+        if (filterStatus) filterStatus.value = "완료";
+        applyFiltersAndRender();
+        if (planListSection) {
+            planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            planListSection.classList.remove("pulse-highlight");
+            void planListSection.offsetWidth;
+            planListSection.classList.add("pulse-highlight");
+        }
+        showStatus(`🎯 완료된 계획 (${seeDataCache ? seeDataCache.completed_count : 0}개) 목록과 근거 기록을 표시합니다.`, "info");
+    });
+}
+
+// 3. [지연 수] 카드 클릭 -> 지연된 계획 목록으로 필터링 & 이동
+if (kpiCardDelayed) {
+    kpiCardDelayed.addEventListener("click", () => {
+        if (filterStatus) filterStatus.value = "지연";
+        applyFiltersAndRender();
+        if (planListSection) {
+            planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            planListSection.classList.remove("pulse-highlight");
+            void planListSection.offsetWidth;
+            planListSection.classList.add("pulse-highlight");
+        }
+        showStatus(`⏰ 마감일이 지난 미완료 계획 (${seeDataCache ? seeDataCache.delayed_count : 0}개) 목록입니다.`, "warning");
+    });
+}
+
+// 4. [막힘 수] 카드 클릭 -> 막혔던 이유 모아보기 박스로 이동
+if (kpiCardBlocked) {
+    kpiCardBlocked.addEventListener("click", () => {
+        const blockerBox = document.getElementById("see-blockers-box");
+        if (blockerBox) {
+            blockerBox.scrollIntoView({ behavior: "smooth", block: "center" });
+            blockerBox.classList.remove("pulse-highlight");
+            void blockerBox.offsetWidth;
+            blockerBox.classList.add("pulse-highlight");
+        }
+        showStatus(`🚧 실행 중 막힘/병목이 발생했던 기록 (${seeDataCache ? seeDataCache.blocked_count : 0}건)입니다.`, "warning");
+    });
+}
+
+// 5. [시간 분석] 카드 클릭 -> 계획 vs 실제 실행 비교 분석 표로 이동
+if (kpiCardTime) {
+    kpiCardTime.addEventListener("click", () => {
+        const tableBox = document.getElementById("see-table-box");
+        if (tableBox) {
+            tableBox.scrollIntoView({ behavior: "smooth", block: "center" });
+            tableBox.classList.remove("pulse-highlight");
+            void tableBox.offsetWidth;
+            tableBox.classList.add("pulse-highlight");
+        }
+        showStatus(`⏱ 계획 예상 시간과 실제 소요 시간의 차이를 비교한 표입니다.`, "info");
+    });
+}
+
+// -------------------------------------------------------------
+// 💡 첫 행동 3: 돌아보기에서 다음 계획으로 넘길 한 줄을 정합니다 (See → Plan 연결)
+// -------------------------------------------------------------
+
+// 막힘 사유 드롭다운 선택 시 고칠 점 입력창에 프리필
+if (actionBlockerSelect) {
+    actionBlockerSelect.addEventListener("change", () => {
+        const selectedReason = actionBlockerSelect.value;
+        if (selectedReason && nextActionInput) {
+            nextActionInput.value = `[개선] ${selectedReason} 방지 및 선제 대응`;
+            nextActionInput.focus();
+        }
+    });
+}
+
+// '🚀 다음 계획으로 넘기기' 버튼 클릭 이벤트 핸들러
+if (btnTransferToPlan) {
+    btnTransferToPlan.addEventListener("click", async () => {
+        const text = nextActionInput ? nextActionInput.value.trim() : "";
+        if (!text) {
+            showStatus("다음 계획에서 개선할 고칠 점을 1가지 입력해주세요.", "error");
+            if (nextActionInput) nextActionInput.focus();
+            return;
+        }
+
+        try {
+            // 서버에 고칠 점(액션 아이템) 보존
+            await fetch("/api/see/next-action", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    action_text: text,
+                    source_type: "reflection"
+                })
+            });
+        } catch (err) {
+            console.warn("고칠 점 저장 중 경고:", err);
+        }
+
+        // 새 계획 작성 모드로 폼 초기화 및 프리필
+        if (typeof resetForm === "function") {
+            resetForm();
+        } else if (newPlanActionBtn) {
+            newPlanActionBtn.click();
+        }
+
+        // 고칠 점 내용을 새 계획의 제목, 성공 기준, 태그에 반영
+        if (titleInput) {
+            titleInput.value = text.startsWith("[개선]") ? text : `[개선] ${text}`;
+        }
+        if (successCriteriaInput) {
+            successCriteriaInput.value = `${text} 실천을 통해 지연과 막힘 없이 성공적으로 완수`;
+        }
+        if (tagsInput) {
+            const currentTags = tagsInput.value.trim();
+            tagsInput.value = currentTags ? `${currentTags}, 개선, 돌아보기` : `개선, 돌아보기`;
+        }
+
+        // 오늘 날짜로 시작일/종료일 기본 설정
+        const todayStr = getLocalDateString();
+        if (startDateInput) startDateInput.value = todayStr;
+        if (endDateInput) endDateInput.value = todayStr;
+
+        // 상단 새 계획 작성 폼으로 부드럽게 스크롤 이동 및 시각적 강조
+        if (formSection) {
+            formSection.scrollIntoView({ behavior: "smooth", block: "start" });
+            formSection.classList.remove("pulse-highlight");
+            void formSection.offsetWidth;
+            formSection.classList.add("pulse-highlight");
+        }
+
+        if (expectedMinutesInput) {
+            expectedMinutesInput.focus();
+        }
+
+        showStatus("✨ 돌아보기에서 정한 고칠 점이 새 계획(PLAN) 폼에 반영되었습니다! 예상 시간을 입력하고 저장하세요.", "success");
+
+        // 입력창 비우고 돌아보기 최신화
+        if (nextActionInput) nextActionInput.value = "";
+        if (actionBlockerSelect) actionBlockerSelect.value = "";
+        await loadSeeData();
+    });
+}
+
+// 기간 선택 탭 이벤트 리스너 등록
+if (seePeriodTabs) {
+    seePeriodTabs.forEach(tab => {
+        tab.addEventListener("click", async () => {
+            seePeriodTabs.forEach(t => t.classList.remove("active"));
+            tab.classList.add("active");
+            currentSeePeriod = tab.dataset.period || "all";
+            await loadSeeData();
+        });
     });
 }
 

@@ -1,6 +1,19 @@
 from flask import Flask, render_template, request, jsonify
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date, timedelta, timezone
+import calendar
+
+# 서울 표준시 (KST, UTC+9) 지원 (T06-C30)
+KST = timezone(timedelta(hours=9))
+
+
+def get_kst_now():
+    return datetime.now(KST)
+
+
+def get_kst_today_str():
+    return get_kst_now().strftime("%Y-%m-%d")
+
 
 app = Flask(__name__)
 
@@ -90,6 +103,18 @@ def init_db():
             plan_id INTEGER NOT NULL UNIQUE,
             completed_at TEXT NOT NULL,
             FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
+        )
+    """)
+
+    # 돌아보기(See)에서 다음 계획(Plan)으로 넘길 한 줄(개선 액션) 보존을 위한 테이블
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS next_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_text TEXT NOT NULL,
+            source_type TEXT NOT NULL DEFAULT 'custom',
+            source_plan_id INTEGER,
+            created_at TEXT NOT NULL,
+            applied_at TEXT
         )
     """)
 
@@ -203,8 +228,19 @@ def get_plans():
         params.extend([q_wild, q_wild, q_wild])
 
     if status_filter and status_filter != "all":
-        sql += " AND p.status = ?"
-        params.append(status_filter)
+        if status_filter == "지연":
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            sql += """ AND (
+                (p.status != '완료' AND p.current_end_date < ?)
+                OR
+                (p.status = '완료' AND (SELECT completed_at FROM completion_records c WHERE c.plan_id = p.id) IS NOT NULL AND SUBSTR((SELECT completed_at FROM completion_records c WHERE c.plan_id = p.id), 1, 10) > p.current_end_date)
+            )"""
+            params.append(today_str)
+        elif status_filter == "막힘":
+            sql += " AND (SELECT COUNT(*) FROM execution_records e WHERE e.plan_id = p.id AND e.blocker_reason IS NOT NULL AND TRIM(e.blocker_reason) != '') > 0"
+        else:
+            sql += " AND p.status = ?"
+            params.append(status_filter)
 
     if priority_filter and priority_filter != "all":
         sql += " AND p.current_priority = ?"
@@ -231,7 +267,16 @@ def get_plans():
         """
 
     cursor = conn.execute(sql, params)
-    plans = [dict(row) for row in cursor.fetchall()]
+    raw_rows = cursor.fetchall()
+    today_str = get_kst_today_str()
+    plans = []
+    for row in raw_rows:
+        d = dict(row)
+        is_comp = (d.get("status") == "완료")
+        p_end = d.get("current_end_date")
+        # [T06-C30] 완료되지 않았고 마감일이 서울 시간 기준 오늘보다 앞선 할 일만 지연으로 판정
+        d["is_delayed"] = bool(not is_comp and p_end and p_end < today_str)
+        plans.append(d)
 
     conn.close()
 
@@ -977,52 +1022,49 @@ def delete_execution_record(execution_id):
 
 
 # 돌아보기 (See) 대시보드 통계 및 분석 데이터
-# [요구사항 5] 완료 수는 고유한 완료 계획 수(중복 없는 1:1 완료)를 기반으로 정확히 1만 카운트됨
+# [기간별 집계, 지표 확장(계획·완료·지연·막힘, 예상·실제 시간), 근거 추적 지원]
 @app.route("/api/see", methods=["GET"])
 def get_see_data():
+    period = request.args.get("period", "all").strip().lower()
+    now = get_kst_now()
+    today_str = get_kst_today_str()
+
+    start_date = None
+    end_date = None
+    range_label = "전체 기간"
+
+    if period == "today":
+        start_date = today_str
+        end_date = today_str
+        range_label = f"오늘 ({today_str})"
+    elif period == "week":
+        monday = now.date() - timedelta(days=now.weekday())
+        sunday = monday + timedelta(days=6)
+        start_date = monday.strftime("%Y-%m-%d")
+        end_date = sunday.strftime("%Y-%m-%d")
+        range_label = f"이번 주 ({start_date} ~ {end_date})"
+    elif period == "month":
+        _, last_day = calendar.monthrange(now.year, now.month)
+        start_date = f"{now.year:04d}-{now.month:02d}-01"
+        end_date = f"{now.year:04d}-{now.month:02d}-{last_day:02d}"
+        range_label = f"이번 달 ({now.year}년 {now.month}월)"
+    else:
+        period = "all"
+        range_label = "전체 기간"
+
     conn = get_db()
 
-    # 전체 계획 수
-    total_plans = conn.execute("SELECT COUNT(*) AS cnt FROM plans").fetchone()["cnt"]
-
-    # 완료된 계획 수 (고유 완료 계획 수)
-    completed_plans = conn.execute("SELECT COUNT(*) AS cnt FROM plans WHERE status = '완료'").fetchone()["cnt"]
-
-    # 진행중 계획 수
-    ongoing_plans = conn.execute("SELECT COUNT(*) AS cnt FROM plans WHERE status != '완료'").fetchone()["cnt"]
-
-    # 목표 달성률
-    completion_rate = round((completed_plans / total_plans * 100), 1) if total_plans > 0 else 0
-
-    # 총 계획 예상 시간 (현재 계획 기준)
-    exp_row = conn.execute("SELECT COALESCE(SUM(current_expected_minutes), 0) AS total_exp FROM plans").fetchone()
-    total_expected_minutes = exp_row["total_exp"]
-
-    # 총 실제 소요 시간 (누적된 모든 실행 기록의 합)
-    act_row = conn.execute("SELECT COALESCE(SUM(actual_minutes), 0) AS total_act FROM execution_records").fetchone()
-    total_actual_minutes = act_row["total_act"]
-
-    # 총 실행 기록 수
-    total_executions = conn.execute("SELECT COUNT(*) AS cnt FROM execution_records").fetchone()["cnt"]
-
-    # [요구사항 2] 막혔던 이유 모아보기 (비어있지 않은 사유들)
-    blockers_cursor = conn.execute("""
-        SELECT e.id, e.plan_id, e.blocker_reason, e.actual_minutes, e.created_at, p.title AS plan_title
-        FROM execution_records e
-        JOIN plans p ON e.plan_id = p.id
-        WHERE e.blocker_reason IS NOT NULL AND TRIM(e.blocker_reason) != ''
-        ORDER BY e.id DESC
-    """)
-    blockers = [dict(r) for r in blockers_cursor.fetchall()]
-
-    # 계획 vs 실행 비교 요약 목록 (완료 목표 실행 기록이 원래 계획을 덮어쓰지 않고 나란히 비교)
+    # 모든 계획 및 연관 요약 정보 가져오기
     summary_cursor = conn.execute("""
         SELECT
             p.id, p.title, p.current_priority, p.status,
+            p.current_start_date, p.current_end_date,
+            p.created_at, p.updated_at,
             p.original_expected_minutes, p.current_expected_minutes,
             c.completed_at,
             (SELECT COUNT(*) FROM execution_records e WHERE e.plan_id = p.id) AS execution_count,
-            (SELECT COALESCE(SUM(actual_minutes), 0) FROM execution_records e WHERE e.plan_id = p.id) AS actual_total_minutes
+            (SELECT COALESCE(SUM(actual_minutes), 0) FROM execution_records e WHERE e.plan_id = p.id) AS actual_total_minutes,
+            (SELECT COUNT(*) FROM execution_records e WHERE e.plan_id = p.id AND e.blocker_reason IS NOT NULL AND TRIM(e.blocker_reason) != '') AS blocker_count
         FROM plans p
         LEFT JOIN completion_records c ON p.id = c.plan_id
         ORDER BY
@@ -1033,23 +1075,170 @@ def get_see_data():
             END ASC,
             p.id DESC
     """)
-    plan_do_summaries = [dict(r) for r in summary_cursor.fetchall()]
+    all_plans = [dict(r) for r in summary_cursor.fetchall()]
+
+    # 기간 필터링 적용
+    filtered_plans = []
+    for p in all_plans:
+        if period == "all":
+            filtered_plans.append(p)
+        else:
+            p_start = p["current_start_date"]
+            p_end = p["current_end_date"]
+            p_created = (p["created_at"] or "")[:10]
+            p_comp = (p["completed_at"] or "")[:10]
+
+            is_in_period = False
+            if p_start and p_end and (p_start <= end_date and p_end >= start_date):
+                is_in_period = True
+            elif p_created and (start_date <= p_created <= end_date):
+                is_in_period = True
+            elif p_comp and (start_date <= p_comp <= end_date):
+                is_in_period = True
+
+            if is_in_period:
+                filtered_plans.append(p)
+
+    # 지표 산출
+    total_plans = len(filtered_plans)
+    completed_plans = 0
+    delayed_plans = 0
+    blocked_plans = 0
+    ongoing_plans = 0
+
+    total_expected_minutes = 0
+    total_actual_minutes = 0
+
+    delayed_plan_ids = []
+    completed_plan_ids = []
+    ongoing_plan_ids = []
+    blocked_plan_ids = []
+
+    for p in filtered_plans:
+        p_id = p["id"]
+        is_comp = (p["status"] == "완료")
+        p_end = p["current_end_date"]
+        p_comp = (p["completed_at"] or "")[:10]
+        has_blocker = (p["blocker_count"] > 0)
+
+        # [T06-C30] 지연 판정: 완료되지 않았고 마감일이 서울 시간 기준 오늘보다 앞선 할 일 (완료한 할 일은 지연으로 두 번 세지 않음)
+        is_delayed = bool(not is_comp and p_end and p_end < today_str)
+
+        p["is_delayed"] = is_delayed
+        p["has_blocker"] = has_blocker
+
+        if is_comp:
+            completed_plans += 1
+            completed_plan_ids.append(p_id)
+        else:
+            ongoing_plans += 1
+            ongoing_plan_ids.append(p_id)
+
+        if is_delayed:
+            delayed_plans += 1
+            delayed_plan_ids.append(p_id)
+
+        if has_blocker:
+            blocked_plans += 1
+            blocked_plan_ids.append(p_id)
+
+        total_expected_minutes += int(p["current_expected_minutes"] or 0)
+        total_actual_minutes += int(p["actual_total_minutes"] or 0)
+
+    completion_rate = round((completed_plans / total_plans * 100), 1) if total_plans > 0 else 0
+
+    # 막혔던 이유 모아보기
+    plan_id_set = {p["id"] for p in filtered_plans}
+    blockers_cursor = conn.execute("""
+        SELECT e.id, e.plan_id, e.blocker_reason, e.actual_minutes, e.created_at, p.title AS plan_title
+        FROM execution_records e
+        JOIN plans p ON e.plan_id = p.id
+        WHERE e.blocker_reason IS NOT NULL AND TRIM(e.blocker_reason) != ''
+        ORDER BY e.id DESC
+    """)
+    all_blockers = [dict(r) for r in blockers_cursor.fetchall()]
+    if period == "all":
+        blockers = all_blockers
+    else:
+        blockers = [b for b in all_blockers if b["plan_id"] in plan_id_set or (start_date <= (b["created_at"] or "")[:10] <= end_date)]
+
+    # 최근 다음 계획으로 넘긴 한 줄 목록
+    recent_actions = []
+    try:
+        actions_cursor = conn.execute("""
+            SELECT * FROM next_actions
+            ORDER BY id DESC
+            LIMIT 5
+        """)
+        recent_actions = [dict(r) for r in actions_cursor.fetchall()]
+    except Exception:
+        pass
 
     conn.close()
 
     return jsonify({
         "success": True,
+        "period": period,
+        "range_label": range_label,
+        "start_date": start_date,
+        "end_date": end_date,
         "total_plans": total_plans,
         "completed_count": completed_plans,
+        "delayed_count": delayed_plans,
+        "blocked_count": blocked_plans,
         "ongoing_count": ongoing_plans,
         "completion_rate": completion_rate,
         "total_expected_minutes": total_expected_minutes,
         "total_actual_minutes": total_actual_minutes,
         "time_difference": total_actual_minutes - total_expected_minutes,
-        "total_executions": total_executions,
+        "total_executions": sum(p["execution_count"] for p in filtered_plans),
+        "delayed_plan_ids": delayed_plan_ids,
+        "completed_plan_ids": completed_plan_ids,
+        "ongoing_plan_ids": ongoing_plan_ids,
+        "blocked_plan_ids": blocked_plan_ids,
         "blockers": blockers,
-        "plan_do_summaries": plan_do_summaries
+        "plan_do_summaries": filtered_plans,
+        "recent_actions": recent_actions
     })
+
+
+# 돌아보기에서 다음 계획으로 넘길 한 줄 저장
+@app.route("/api/see/next-action", methods=["POST"])
+def save_next_action():
+    data = request.get_json() or {}
+    action_text = data.get("action_text", "").strip()
+    source_type = data.get("source_type", "custom").strip()
+    source_plan_id = data.get("source_plan_id")
+
+    if not action_text:
+        return jsonify({"success": False, "message": "고칠 점(개선할 내용)을 입력해주세요."}), 400
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn = get_db()
+    cursor = conn.execute("""
+        INSERT INTO next_actions (action_text, source_type, source_plan_id, created_at, applied_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (action_text, source_type, source_plan_id, now, now))
+    action_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "success": True,
+        "message": "고칠 점이 다음 계획으로 성공적으로 전달되었습니다.",
+        "action_id": action_id,
+        "action_text": action_text
+    })
+
+
+# 돌아보기 다음 계획 액션 아이템 목록 조회
+@app.route("/api/see/next-actions", methods=["GET"])
+def get_next_actions():
+    conn = get_db()
+    cursor = conn.execute("SELECT * FROM next_actions ORDER BY id DESC LIMIT 10")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return jsonify({"success": True, "actions": rows})
 
 
 # 계획 삭제 (해당 계획의 수정 이력, 실행 기록, 완료 기록도 함께 삭제)
