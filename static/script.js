@@ -2155,3 +2155,27 @@ if (seeRefreshBtn) {
         showStatus("돌아보기(See) 데이터가 새로고침되었습니다.", "success");
     });
 }
+
+// 📥 전체 데이터 단일 파일(JSON) 내보내기 기능
+function handleExportData() {
+    showStatus("📥 내 계획과 기록 전체를 파일로 내보내는 중입니다...", "info");
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.href = "/api/export";
+    downloadAnchor.download = "";
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    document.body.removeChild(downloadAnchor);
+    setTimeout(() => {
+        showStatus("✨ 내 계획과 기록 전체가 파일 하나(JSON)로 안전하게 내보내졌습니다!", "success");
+    }, 600);
+}
+
+const exportTopBtn = document.getElementById("export-top-btn");
+if (exportTopBtn) {
+    exportTopBtn.addEventListener("click", handleExportData);
+}
+
+const seeExportBtn = document.getElementById("see-export-btn");
+if (seeExportBtn) {
+    seeExportBtn.addEventListener("click", handleExportData);
+}

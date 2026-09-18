@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 import sqlite3
+import json
 from datetime import datetime, date, timedelta, timezone
 import calendar
 
@@ -1263,6 +1264,61 @@ def delete_plan(plan_id):
         "success": True,
         "message": "계획과 수정 이력, 실행 및 완료 기록이 모두 삭제되었습니다."
     })
+
+
+# 전체 데이터 파일 하나로 내보내기 (JSON Export / 백업)
+@app.route("/api/export", methods=["GET"])
+def export_all_data():
+    conn = get_db()
+    
+    plans_cursor = conn.execute("SELECT * FROM plans ORDER BY id ASC")
+    plans = [dict(r) for r in plans_cursor.fetchall()]
+
+    hist_cursor = conn.execute("SELECT * FROM plan_history ORDER BY id ASC")
+    history = [dict(r) for r in hist_cursor.fetchall()]
+
+    exec_cursor = conn.execute("SELECT * FROM execution_records ORDER BY id ASC")
+    executions = [dict(r) for r in exec_cursor.fetchall()]
+
+    comp_cursor = conn.execute("SELECT * FROM completion_records ORDER BY id ASC")
+    completions = [dict(r) for r in comp_cursor.fetchall()]
+
+    next_cursor = conn.execute("SELECT * FROM next_actions ORDER BY id ASC")
+    next_actions = [dict(r) for r in next_cursor.fetchall()]
+
+    conn.close()
+
+    now_kst = get_kst_now()
+    timestamp_str = now_kst.strftime("%Y%m%d_%H%M%S")
+
+    export_payload = {
+        "metadata": {
+            "system": "Plan-Do-See (PDS) Personal Task System",
+            "version": "2.0.0",
+            "schema_contract": "contracts/pds-schema-v2.json",
+            "exported_at": now_kst.strftime("%Y-%m-%d %H:%M:%S"),
+            "timezone": "Asia/Seoul (KST, UTC+9)",
+            "total_plans": len(plans),
+            "total_history": len(history),
+            "total_executions": len(executions),
+            "total_completions": len(completions),
+            "total_next_actions": len(next_actions),
+            "notice": "지금은 로그인이 없어 링크를 아는 사람은 누구나 볼 수 있습니다. 남이 봐도 괜찮은 내용만 넣으세요."
+        },
+        "plans": plans,
+        "plan_history": history,
+        "execution_records": executions,
+        "completion_records": completions,
+        "next_actions": next_actions
+    }
+
+    json_str = json.dumps(export_payload, ensure_ascii=False, indent=2)
+    filename = f"pds_backup_{timestamp_str}.json"
+
+    response = Response(json_str, mimetype="application/json; charset=utf-8")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 
 if __name__ == "__main__":
