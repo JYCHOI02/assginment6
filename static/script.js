@@ -6,6 +6,15 @@ let isReorderMode = false;
 let draggedIndex = null;
 let currentPlanExecutions = [];
 
+// 🧭 PDS 3단계 탭 상태 관리 UI 요소
+let activePdsTab = "plan";
+const tabBtns = document.querySelectorAll(".pds-tab-btn");
+const tabBadgePlan = document.getElementById("tab-badge-plan");
+const tabBadgeDo = document.getElementById("tab-badge-do");
+const tabBadgeSee = document.getElementById("tab-badge-see");
+const btnSwitchToPlan = document.getElementById("btn-switch-to-plan");
+const drawerGotoDoBtn = document.getElementById("drawer-goto-do-btn");
+
 // HTML 요소
 const form = document.getElementById("plan-form");
 const formSection = document.getElementById("form-section");
@@ -54,6 +63,18 @@ const historyCountBadge = document.getElementById("history-count-badge");
 const historyEmpty = document.getElementById("history-empty");
 const historyTableWrapper = document.getElementById("history-table-wrapper");
 const historyListBody = document.getElementById("history-list-body");
+
+// 📌 계획에 딸린 세부 할 일 (Subtasks) UI 요소
+let currentPlanTasks = [];
+const planTasksSection = document.getElementById("plan-tasks-section");
+const planTasksCountBadge = document.getElementById("plan-tasks-count-badge");
+const tasksProgressText = document.getElementById("tasks-progress-text");
+const tasksProgressFill = document.getElementById("tasks-progress-fill");
+const planTaskAddForm = document.getElementById("plan-task-add-form");
+const taskTitleInput = document.getElementById("task-title-input");
+const taskDueDateInput = document.getElementById("task-due-date-input");
+const planTasksEmpty = document.getElementById("plan-tasks-empty");
+const planTasksList = document.getElementById("plan-tasks-list");
 
 const currentStatusBtn = document.getElementById("current-status-btn");
 const displayStatusBadge = document.getElementById("display-status-badge");
@@ -193,10 +214,12 @@ async function loadPlans() {
             selectedPlanId = null;
             planListSection.classList.add("hidden");
             currentPlanSection.classList.add("hidden");
+            if (planTasksSection) planTasksSection.classList.add("hidden");
             if (historySection) historySection.classList.add("hidden");
             if (executionSection) executionSection.classList.add("hidden");
             showCreateMode();
             await loadSeeData();
+            updateTabViews();
             return;
         }
 
@@ -217,8 +240,12 @@ async function loadPlans() {
         displayPlan(currentPlan);
 
         currentPlanSection.classList.remove("hidden");
+        if (planTasksSection) planTasksSection.classList.remove("hidden");
         if (historySection) historySection.classList.remove("hidden");
         if (executionSection) executionSection.classList.remove("hidden");
+
+        // 📌 [Subtasks] 선택된 계획의 세부 할 일 목록 로드
+        await loadPlanTasks(selectedPlanId);
 
         // [T06-C08] 선택된 계획의 수정 이력(고치기 전 계획들) 로드
         await loadPlanHistory(selectedPlanId);
@@ -233,9 +260,93 @@ async function loadPlans() {
             showViewMode();
         }
 
+        // 🧭 URL 해시 및 탭 뷰 동기화
+        const initialHash = window.location.hash.replace("#", "").toLowerCase();
+        if (["plan", "do", "see"].includes(initialHash)) {
+            activePdsTab = initialHash;
+        }
+        updateTabViews();
+
     } catch (error) {
         console.error(error);
         showStatus("서버와 연결할 수 없습니다.", "error");
+    }
+}
+
+// 🧭 3단계 탭 뷰 가시성 제어 함수 (스크롤 방지 및 모듈형 뷰 전환)
+function updateTabViews() {
+    // 탭 버튼 active 클래스 갱신
+    tabBtns.forEach(btn => {
+        if (btn.dataset.tab === activePdsTab) {
+            btn.classList.add("active");
+        } else {
+            btn.classList.remove("active");
+        }
+    });
+
+    if (activePdsTab === "plan") {
+        // PLAN 탭: 계획 작성 폼과 계획 목록 노출
+        if (allPlans.length === 0) {
+            showCreateMode();
+            if (planListSection) planListSection.classList.add("hidden");
+        } else {
+            if (!editing) showViewMode();
+            if (planListSection) planListSection.classList.remove("hidden");
+        }
+        if (executionSection) executionSection.classList.add("hidden");
+        if (seeSection) seeSection.classList.add("hidden");
+    } else if (activePdsTab === "do") {
+        // DO 탭: 실행 기록 폼 및 누적 이력 노출 (계획 작성/목록 숨김)
+        if (formSection) formSection.classList.add("hidden");
+        if (planListSection) planListSection.classList.add("hidden");
+        if (executionSection) executionSection.classList.remove("hidden");
+        if (seeSection) seeSection.classList.add("hidden");
+    } else if (activePdsTab === "see") {
+        // SEE 탭: 돌아보기 대시보드만 노출
+        if (formSection) formSection.classList.add("hidden");
+        if (planListSection) planListSection.classList.add("hidden");
+        if (executionSection) executionSection.classList.add("hidden");
+        if (seeSection) seeSection.classList.remove("hidden");
+    }
+
+    updateTabBadges();
+}
+
+// 탭 뱃지(카운터) 갱신
+function updateTabBadges() {
+    if (tabBadgePlan) {
+        tabBadgePlan.textContent = (allPlans ? allPlans.length : 0);
+    }
+    if (tabBadgeDo) {
+        let totalExecs = 0;
+        if (allPlans) {
+            totalExecs = allPlans.reduce((sum, p) => sum + (p.execution_count || 0), 0);
+        }
+        tabBadgeDo.textContent = totalExecs;
+    }
+    if (tabBadgeSee) {
+        if (seeDataCache && seeDataCache.summary) {
+            tabBadgeSee.textContent = `${seeDataCache.summary.completion_rate}%`;
+        } else if (allPlans && allPlans.length > 0) {
+            const completed = allPlans.filter(p => p.status === "완료").length;
+            const rate = Math.round((completed / allPlans.length) * 100);
+            tabBadgeSee.textContent = `${rate}%`;
+        } else {
+            tabBadgeSee.textContent = "0%";
+        }
+    }
+}
+
+// 탭 전환 핸들러
+function switchPdsTab(targetTab, shouldScroll = false) {
+    if (!["plan", "do", "see"].includes(targetTab)) return;
+    activePdsTab = targetTab;
+    window.location.hash = targetTab;
+
+    updateTabViews();
+
+    if (shouldScroll) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
     }
 }
 
@@ -500,6 +611,10 @@ function renderPlanList(plansToRender = allPlans) {
                 <div class="plan-item-meta">
                     <span>📅 ${escapeHtml(formatPeriod(plan.current_start_date, plan.current_end_date))}</span>
                     <span>⏱ ${escapeHtml(formatMinutes(plan.current_expected_minutes))}</span>
+                    ${(plan.task_count && plan.task_count > 0)
+                        ? `<span class="plan-task-count-badge" title="딸린 할 일 ${plan.task_count}개 중 ${plan.completed_task_count || 0}개 완료">☑️ 할 일 ${plan.completed_task_count || 0}/${plan.task_count}</span>`
+                        : ""
+                    }
                 </div>
             </div>
             <div class="plan-item-actions">
@@ -507,6 +622,9 @@ function renderPlanList(plansToRender = allPlans) {
                     ? `<button type="button" class="plan-revert-btn" title="이 계획을 다시 진행중으로 변경">↺ 다시 진행</button>`
                     : `<button type="button" class="plan-complete-btn" title="이 계획을 완료로 변경">✓ 완료하기</button>`
                 }
+                <button type="button" class="plan-do-btn" title="이 계획의 실행(DO)을 기록하러 이동">
+                    ⚡ 실행(Do)
+                </button>
                 <button type="button" class="plan-select-btn" title="계획 상세 및 수정 이력 열기">
                     ${plan.id === selectedPlanId ? "상세보기 ❯" : "상세보기 ❯"}
                 </button>
@@ -516,6 +634,16 @@ function renderPlanList(plansToRender = allPlans) {
             </div>
         `;
 
+        // 실행(Do) 버튼 클릭 시 해당 계획 선택 후 DO 탭으로 전환
+        const doBtn = item.querySelector(".plan-do-btn");
+        if (doBtn) {
+            doBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                selectPlan(plan.id);
+                switchPdsTab("do", true);
+            });
+        }
+
         // 태그 뱃지 클릭 시 태그 필터링
         item.querySelectorAll(".plan-tag-pill").forEach(pill => {
             pill.addEventListener("click", (e) => {
@@ -524,12 +652,13 @@ function renderPlanList(plansToRender = allPlans) {
             });
         });
 
-        // 카드 클릭 시 선택 및 우측 슬라이드 드로어 열기 (재배치 모드가 아닐 때, 또는 상태/삭제/화살표 버튼이 아닐 때)
+        // 카드 클릭 시 선택 및 우측 슬라이드 드로어 열기 (재배치 모드가 아닐 때, 또는 상태/삭제/화살표/실행 버튼이 아닐 때)
         item.onclick = (e) => {
             if (e.target.closest(".plan-delete-btn") ||
                 e.target.closest(".reorder-arrow-btn") ||
                 e.target.closest(".plan-complete-btn") ||
                 e.target.closest(".plan-revert-btn") ||
+                e.target.closest(".plan-do-btn") ||
                 e.target.closest(".plan-tag-pill")) {
                 return;
             }
@@ -744,6 +873,9 @@ function selectPlan(id) {
         applyFiltersAndRender();
         displayPlan(currentPlan);
 
+        // 📌 [Subtasks] 선택된 계획의 세부 할 일 목록 불러오기
+        loadPlanTasks(id);
+
         // [T06-C08] 선택된 계획의 수정 이력(고치기 전 계획) 불러오기
         loadPlanHistory(id);
 
@@ -924,6 +1056,262 @@ async function restoreHistoryVersion(planId, historyId, version, title) {
     }
 }
 
+
+// ==========================================================
+// 📌 계획에 딸린 세부 할 일 (Subtasks / Plan Tasks) 로직
+// [요구사항] 계획별 딸린 할 일 추가, 수정, 삭제, 완료 토글 및 보존
+// ==========================================================
+
+async function loadPlanTasks(planId) {
+    if (!planTasksSection) return;
+    if (!planId) {
+        planTasksSection.classList.add("hidden");
+        return;
+    }
+    planTasksSection.classList.remove("hidden");
+
+    try {
+        const response = await fetch(`/api/plan/${planId}/tasks`);
+        const data = await response.json();
+        if (data.success) {
+            currentPlanTasks = data.tasks || [];
+            renderPlanTasks(currentPlanTasks, data.total_count || 0, data.completed_count || 0);
+        }
+    } catch (error) {
+        console.error("세부 할 일 조회 실패:", error);
+    }
+}
+
+function renderPlanTasks(tasks, totalCount, completedCount) {
+    if (!planTasksList) return;
+
+    // 개수 뱃지 갱신
+    if (planTasksCountBadge) {
+        planTasksCountBadge.textContent = `할 일 ${totalCount}건`;
+    }
+
+    // 진행률 프로그레스 바 갱신
+    const pct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+    if (tasksProgressText) {
+        tasksProgressText.textContent = `완료율: ${pct}% (${completedCount} / ${totalCount}개)`;
+    }
+    if (tasksProgressFill) {
+        tasksProgressFill.style.width = `${pct}%`;
+    }
+
+    // 빈 상태 처리
+    if (!tasks || tasks.length === 0) {
+        if (planTasksEmpty) planTasksEmpty.classList.remove("hidden");
+        planTasksList.innerHTML = "";
+        return;
+    }
+
+    if (planTasksEmpty) planTasksEmpty.classList.add("hidden");
+    planTasksList.innerHTML = "";
+
+    tasks.forEach(task => {
+        const isComp = (task.is_completed === 1 || task.is_completed === true);
+        const item = document.createElement("div");
+        item.className = `task-item ${isComp ? "completed" : ""}`;
+        item.dataset.taskId = task.id;
+
+        const dueHtml = task.due_date ? `<span class="task-due-badge" title="마감일: ${escapeHtml(task.due_date)}">📅 ${escapeHtml(task.due_date)}</span>` : "";
+
+        item.innerHTML = `
+            <div class="task-left">
+                <input type="checkbox" class="task-checkbox" title="완료 여부 변경" ${isComp ? "checked" : ""}>
+                <span class="task-title ${isComp ? "completed" : ""}">${escapeHtml(task.title)}</span>
+                ${dueHtml}
+            </div>
+            <div class="task-actions">
+                <button type="button" class="task-btn-edit" title="이 할 일 수정">수정</button>
+                <button type="button" class="task-btn-del" title="이 할 일 삭제">삭제</button>
+            </div>
+        `;
+
+        // 체크박스 완료 토글
+        const chk = item.querySelector(".task-checkbox");
+        if (chk) {
+            chk.addEventListener("change", async () => {
+                await toggleTaskCompletion(task.id, chk.checked ? 1 : 0);
+            });
+        }
+
+        // 수정 버튼 클릭 시 인라인 수정 폼으로 전환
+        const editBtn = item.querySelector(".task-btn-edit");
+        if (editBtn) {
+            editBtn.addEventListener("click", () => {
+                enableInlineTaskEdit(item, task);
+            });
+        }
+
+        // 삭제 버튼 클릭
+        const delBtn = item.querySelector(".task-btn-del");
+        if (delBtn) {
+            delBtn.addEventListener("click", async () => {
+                await deleteTask(task.id, task.title);
+            });
+        }
+
+        planTasksList.appendChild(item);
+    });
+}
+
+// 인라인 수정 모드 활성화
+function enableInlineTaskEdit(item, task) {
+    const isComp = (task.is_completed === 1);
+    item.innerHTML = `
+        <div class="task-inline-edit-row">
+            <input type="text" class="task-inline-input" value="${escapeHtml(task.title)}" maxlength="120" required>
+            <input type="date" class="task-inline-date" value="${escapeHtml(task.due_date || '')}" title="마감일">
+            <button type="button" class="task-btn-save">저장</button>
+            <button type="button" class="task-btn-cancel">취소</button>
+        </div>
+    `;
+
+    const input = item.querySelector(".task-inline-input");
+    const dateInput = item.querySelector(".task-inline-date");
+    const saveBtn = item.querySelector(".task-btn-save");
+    const cancelBtn = item.querySelector(".task-btn-cancel");
+
+    input.focus();
+
+    saveBtn.addEventListener("click", async () => {
+        const newTitle = input.value.trim();
+        if (!newTitle) {
+            showStatus("할 일 내용을 입력해주세요.", "error");
+            return;
+        }
+        const newDueDate = dateInput.value;
+        await saveTaskEdit(task.id, newTitle, newDueDate, isComp);
+    });
+
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            saveBtn.click();
+        } else if (e.key === "Escape") {
+            loadPlanTasks(selectedPlanId);
+        }
+    });
+
+    cancelBtn.addEventListener("click", () => {
+        loadPlanTasks(selectedPlanId);
+    });
+}
+
+// 할 일 수정 저장 API 호출
+async function saveTaskEdit(taskId, title, dueDate, isCompleted) {
+    if (!selectedPlanId) return;
+    try {
+        const response = await fetch(`/api/plan/${selectedPlanId}/task/${taskId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                title: title,
+                due_date: dueDate,
+                is_completed: isCompleted ? 1 : 0
+            })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            showStatus(result.message || "수정에 실패했습니다.", "error");
+            return;
+        }
+        showStatus("세부 할 일이 수정되었습니다.", "success");
+        await loadPlanTasks(selectedPlanId);
+        await loadPlans();
+    } catch (err) {
+        console.error(err);
+        showStatus("서버와 통신 중 오류가 발생했습니다.", "error");
+    }
+}
+
+// 할 일 완료 여부 토글 API 호출
+async function toggleTaskCompletion(taskId, isCompleted) {
+    if (!selectedPlanId) return;
+    try {
+        const response = await fetch(`/api/plan/${selectedPlanId}/task/${taskId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ is_completed: isCompleted })
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            showStatus(result.message || "상태 변경 실패", "error");
+            return;
+        }
+        showStatus(isCompleted ? "할 일을 완료했습니다! 🎉" : "할 일을 다시 진행중으로 변경했습니다.", "success");
+        await loadPlanTasks(selectedPlanId);
+        await loadPlans();
+    } catch (err) {
+        console.error(err);
+        showStatus("서버와 통신 중 오류가 발생했습니다.", "error");
+    }
+}
+
+// 할 일 삭제 API 호출
+async function deleteTask(taskId, title) {
+    if (!selectedPlanId) return;
+    if (!confirm(`'${title}' 할 일을 삭제하시겠습니까?`)) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/plan/${selectedPlanId}/task/${taskId}`, {
+            method: "DELETE"
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            showStatus(result.message || "삭제 실패", "error");
+            return;
+        }
+        showStatus("할 일이 삭제되었습니다.", "success");
+        await loadPlanTasks(selectedPlanId);
+        await loadPlans();
+    } catch (err) {
+        console.error(err);
+        showStatus("서버와 통신 중 오류가 발생했습니다.", "error");
+    }
+}
+
+// 새 할 일 추가 폼 제출 이벤트 리스너 등록
+if (planTaskAddForm) {
+    planTaskAddForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!selectedPlanId) {
+            showStatus("먼저 계획을 선택해주세요.", "error");
+            return;
+        }
+        const title = taskTitleInput ? taskTitleInput.value.trim() : "";
+        const dueDate = taskDueDateInput ? taskDueDateInput.value : "";
+        if (!title) {
+            showStatus("할 일 내용을 입력해주세요.", "error");
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/plan/${selectedPlanId}/tasks`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title, due_date: dueDate })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                showStatus(result.message || "추가 실패", "error");
+                return;
+            }
+            showStatus("새로운 세부 할 일이 추가되었습니다.", "success");
+            if (taskTitleInput) taskTitleInput.value = "";
+            if (taskDueDateInput) taskDueDateInput.value = "";
+            await loadPlanTasks(selectedPlanId);
+            await loadPlans();
+        } catch (err) {
+            console.error(err);
+            showStatus("서버와 통신 중 오류가 발생했습니다.", "error");
+        }
+    });
+}
+
 // 기간 표시 포맷
 function formatPeriod(start, end) {
     return `${start} ~ ${end}`;
@@ -981,9 +1369,15 @@ function showCreateMode() {
     const nextRank = allPlans.length + 1;
     formPriorityDisplay.textContent = `${nextRank}순위 (자동 배정)`;
 
-    if (executionSection) executionSection.classList.add("hidden");
+    if (planTasksSection) planTasksSection.classList.add("hidden");
 
-    formSection.scrollIntoView({ behavior: "smooth" });
+    // 다른 탭에서 새 계획 작성 클릭 시 PLAN 탭으로 전환
+    if (activePdsTab !== "plan") {
+        switchPdsTab("plan", true);
+    } else if (formSection) {
+        formSection.classList.remove("hidden");
+        formSection.scrollIntoView({ behavior: "smooth" });
+    }
 }
 
 // 계획 보기 모드
@@ -1001,7 +1395,11 @@ function showViewMode() {
 
     if (currentPlan) {
         formPriorityDisplay.textContent = currentPlan.current_priority || "1순위";
-        if (executionSection) executionSection.classList.remove("hidden");
+        if (planTasksSection) planTasksSection.classList.remove("hidden");
+    }
+
+    if (activePdsTab === "plan" && formSection) {
+        formSection.classList.remove("hidden");
     }
 }
 
@@ -1014,6 +1412,13 @@ function showEditMode() {
     }
 
     editing = true;
+
+    // 다른 탭에서 수정 클릭 시 PLAN 탭으로 전환
+    if (activePdsTab !== "plan") {
+        switchPdsTab("plan", true);
+    } else if (formSection) {
+        formSection.classList.remove("hidden");
+    }
 
     formTitle.textContent = `계획 수정: ${currentPlan.title}`;
     modeText.textContent = "수정 중";
@@ -1405,7 +1810,9 @@ async function loadPlanExecutions(planId) {
 // 실행 기록 목록 렌더링
 function renderPlanExecutions(executions, totalMinutes) {
     if (!executionSection) return;
-    executionSection.classList.remove("hidden");
+    if (activePdsTab === "do") {
+        executionSection.classList.remove("hidden");
+    }
 
     if (executionCountBadge) {
         executionCountBadge.textContent = `실행 ${executions.length}건`;
@@ -1416,6 +1823,8 @@ function renderPlanExecutions(executions, totalMinutes) {
     if (execTotalMinutes) {
         execTotalMinutes.textContent = formatMinutes(totalMinutes);
     }
+
+    updateTabBadges();
 
     if (!executions || executions.length === 0) {
         if (executionEmpty) executionEmpty.classList.remove("hidden");
@@ -1700,6 +2109,9 @@ async function loadSeeData() {
         // 최근 전달된 고칠 점 목록 렌더링
         renderRecentActions(data.recent_actions || []);
 
+        // 탭 뱃지(돌아보기 완료율 등) 갱신
+        updateTabBadges();
+
     } catch (error) {
         console.error("돌아보기 데이터 조회 실패:", error);
     }
@@ -1902,48 +2314,57 @@ function renderSeeTable(summaries) {
 // 🔗 첫 행동 2: 집계 숫자를 눌렀을 때 그 숫자가 나온 기록으로 갈 수 있게 연결
 // -------------------------------------------------------------
 
-// 1. [계획 수] 카드 클릭 -> 전체 계획 목록으로 이동
+// 1. [계획 수] 카드 클릭 -> PLAN 탭의 전체 계획 목록으로 이동
 if (kpiCardTotal) {
     kpiCardTotal.addEventListener("click", () => {
+        switchPdsTab("plan", false);
         if (filterStatus) filterStatus.value = "all";
         applyFiltersAndRender();
-        if (planListSection) {
-            planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
-            planListSection.classList.remove("pulse-highlight");
-            void planListSection.offsetWidth;
-            planListSection.classList.add("pulse-highlight");
-        }
-        showStatus(`📋 전체 계획 목록 (${seeDataCache ? seeDataCache.total_plans : 0}개)으로 이동했습니다.`, "info");
+        setTimeout(() => {
+            if (planListSection) {
+                planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
+                planListSection.classList.remove("pulse-highlight");
+                void planListSection.offsetWidth;
+                planListSection.classList.add("pulse-highlight");
+            }
+        }, 50);
+        showStatus(`📋 PLAN 탭의 전체 계획 목록 (${seeDataCache ? seeDataCache.total_plans : 0}개)으로 이동했습니다.`, "info");
     });
 }
 
-// 2. [완료 수] 카드 클릭 -> 완료된 계획 목록으로 필터링 & 이동
+// 2. [완료 수] 카드 클릭 -> PLAN 탭으로 이동 & 완료된 계획 목록으로 필터링
 if (kpiCardCompleted) {
     kpiCardCompleted.addEventListener("click", () => {
+        switchPdsTab("plan", false);
         if (filterStatus) filterStatus.value = "완료";
         applyFiltersAndRender();
-        if (planListSection) {
-            planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
-            planListSection.classList.remove("pulse-highlight");
-            void planListSection.offsetWidth;
-            planListSection.classList.add("pulse-highlight");
-        }
-        showStatus(`🎯 완료된 계획 (${seeDataCache ? seeDataCache.completed_count : 0}개) 목록과 근거 기록을 표시합니다.`, "info");
+        setTimeout(() => {
+            if (planListSection) {
+                planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
+                planListSection.classList.remove("pulse-highlight");
+                void planListSection.offsetWidth;
+                planListSection.classList.add("pulse-highlight");
+            }
+        }, 50);
+        showStatus(`🎯 완료된 계획 (${seeDataCache ? seeDataCache.completed_count : 0}개) 목록으로 이동했습니다.`, "info");
     });
 }
 
-// 3. [지연 수] 카드 클릭 -> 지연된 계획 목록으로 필터링 & 이동
+// 3. [지연 수] 카드 클릭 -> PLAN 탭으로 이동 & 지연된 계획 목록으로 필터링
 if (kpiCardDelayed) {
     kpiCardDelayed.addEventListener("click", () => {
+        switchPdsTab("plan", false);
         if (filterStatus) filterStatus.value = "지연";
         applyFiltersAndRender();
-        if (planListSection) {
-            planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
-            planListSection.classList.remove("pulse-highlight");
-            void planListSection.offsetWidth;
-            planListSection.classList.add("pulse-highlight");
-        }
-        showStatus(`⏰ 마감일이 지난 미완료 계획 (${seeDataCache ? seeDataCache.delayed_count : 0}개) 목록입니다.`, "warning");
+        setTimeout(() => {
+            if (planListSection) {
+                planListSection.scrollIntoView({ behavior: "smooth", block: "start" });
+                planListSection.classList.remove("pulse-highlight");
+                void planListSection.offsetWidth;
+                planListSection.classList.add("pulse-highlight");
+            }
+        }, 50);
+        showStatus(`⏰ 마감일이 지난 미완료 지연 계획 (${seeDataCache ? seeDataCache.delayed_count : 0}개) 목록으로 이동했습니다.`, "warning");
     });
 }
 
@@ -2178,4 +2599,47 @@ if (exportTopBtn) {
 const seeExportBtn = document.getElementById("see-export-btn");
 if (seeExportBtn) {
     seeExportBtn.addEventListener("click", handleExportData);
-}
+}
+
+// ==========================================================
+// 🧭 PDS 3단계 탭 네비게이션 이벤트 리스너 등록
+// ==========================================================
+
+// 1. 상단 탭 버튼 클릭 이벤트
+if (tabBtns && tabBtns.length > 0) {
+    tabBtns.forEach(btn => {
+        btn.addEventListener("click", () => {
+            const target = btn.dataset.tab;
+            if (target) {
+                switchPdsTab(target, true);
+            }
+        });
+    });
+}
+
+// 2. 브라우저 뒤로가기/앞으로가기 URL 해시 변경 감지
+window.addEventListener("hashchange", () => {
+    const hash = window.location.hash.replace("#", "").toLowerCase();
+    if (["plan", "do", "see"].includes(hash) && hash !== activePdsTab) {
+        switchPdsTab(hash, false);
+    }
+});
+
+// 3. DO 탭에서 다른 계획 선택하러 PLAN 탭으로 이동
+if (btnSwitchToPlan) {
+    btnSwitchToPlan.addEventListener("click", () => {
+        switchPdsTab("plan", true);
+    });
+}
+
+// 4. 드로어(상세)에서 이 계획의 실행 기록하러 DO 탭으로 이동
+if (drawerGotoDoBtn) {
+    drawerGotoDoBtn.addEventListener("click", () => {
+        closePlanDrawer();
+        switchPdsTab("do", true);
+        if (execStartTimeInput) {
+            execStartTimeInput.focus();
+        }
+    });
+}
+

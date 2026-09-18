@@ -34,6 +34,25 @@
         </div>
     </header>
 
+    <!-- 🧭 PDS 3단계 탭 네비게이션 (스크롤 없는 모듈형 뷰 전환) -->
+    <nav class="pds-tab-nav" aria-label="Plan Do See 단계 전환">
+        <button type="button" class="pds-tab-btn active" data-tab="plan" id="tab-btn-plan">
+            <span class="tab-icon">📋</span>
+            <span class="tab-label">PLAN (계획)</span>
+            <span class="tab-badge" id="tab-badge-plan">0</span>
+        </button>
+        <button type="button" class="pds-tab-btn" data-tab="do" id="tab-btn-do">
+            <span class="tab-icon">⚡</span>
+            <span class="tab-label">DO (실행)</span>
+            <span class="tab-badge" id="tab-badge-do">0</span>
+        </button>
+        <button type="button" class="pds-tab-btn" data-tab="see" id="tab-btn-see">
+            <span class="tab-icon">📊</span>
+            <span class="tab-label">SEE (돌아보기)</span>
+            <span class="tab-badge" id="tab-badge-see">0%</span>
+        </button>
+    </nav>
+
     <!-- 계획 작성 영역 (PLAN) -->
     <section class="card" id="form-section">
 
@@ -323,6 +342,73 @@
                     마지막 수정: <span id="display-updated"></span>
                 </div>
 
+                <div style="margin-top: 14px; padding-top: 12px; border-top: 1px dashed #e2e8f0; display: flex; justify-content: flex-end;">
+                    <button type="button" class="do-shortcut-btn" id="drawer-goto-do-btn" title="이 계획의 실행(DO)을 기록하러 이동">
+                        ⚡ 이 계획 실행(DO) 기록하러 가기 ❯
+                    </button>
+                </div>
+
+            </section>
+
+            <!-- 📌 계획에 딸린 할 일 (세부 할 일 목록) -->
+            <section class="drawer-card" id="plan-tasks-section" style="margin-top: 20px;">
+
+                <div class="section-title">
+                    <div>
+                        <span class="drawer-step-icon">☑️</span>
+                        <div>
+                            <h2>딸린 할 일 목록</h2>
+                            <p class="section-description">
+                                이 계획을 실행하기 위한 세부 할 일(체크리스트)을 관리합니다.
+                            </p>
+                        </div>
+                    </div>
+                    <span id="plan-tasks-count-badge" class="history-count-badge">할 일 0건</span>
+                </div>
+
+                <!-- 진행률 프로그레스 바 -->
+                <div class="tasks-progress-wrap" id="tasks-progress-wrap">
+                    <div class="tasks-progress-label">
+                        <span id="tasks-progress-text">완료율: 0% (0 / 0개)</span>
+                    </div>
+                    <div class="tasks-progress-bar">
+                        <div id="tasks-progress-fill" class="tasks-progress-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- 할 일 추가 폼 -->
+                <form id="plan-task-add-form" class="task-add-form" style="margin-top: 14px;">
+                    <div class="task-input-row">
+                        <input
+                            type="text"
+                            id="task-title-input"
+                            class="task-input"
+                            placeholder="새 세부 할 일 입력 (예: 기출문제 1회 풀기)"
+                            maxlength="120"
+                            required
+                        >
+                        <input
+                            type="date"
+                            id="task-due-date-input"
+                            class="task-date-input"
+                            title="마감일 (선택)"
+                        >
+                        <button type="submit" class="primary-button task-add-btn" id="task-add-btn">
+                            + 추가
+                        </button>
+                    </div>
+                </form>
+
+                <!-- 할 일이 없을 때 표시할 안내 -->
+                <div id="plan-tasks-empty" class="history-empty hidden" style="margin-top: 14px;">
+                    <p>💡 아직 등록된 세부 할 일이 없습니다. 위 입력창에서 할 일을 추가해보세요.</p>
+                </div>
+
+                <!-- 할 일 목록 리스트 -->
+                <div id="plan-tasks-list" class="plan-tasks-list" style="margin-top: 14px;">
+                    <!-- 동적으로 렌더링됩니다 -->
+                </div>
+
             </section>
 
             <!-- 계획 수정 이력 (T06-C08) -->
@@ -391,6 +477,9 @@
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
                 <span id="target-plan-badge" class="target-plan-badge">선택된 계획 없음</span>
+                <button type="button" class="secondary-button" id="btn-switch-to-plan" style="padding: 4px 10px; font-size: 12px;" title="다른 계획을 선택하려면 PLAN 탭으로 이동">
+                    📋 계획 목록에서 선택
+                </button>
                 <span id="execution-count-badge" class="history-count-badge">실행 0건</span>
             </div>
         </div>

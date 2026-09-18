@@ -1990,3 +1990,396 @@ button {
     }
 
 }
+
+/* ==========================================================
+   📌 계획에 딸린 세부 할 일 (Subtasks) 스타일
+   ========================================================== */
+
+.tasks-progress-wrap {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-top: 12px;
+}
+
+.tasks-progress-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 6px;
+}
+
+.tasks-progress-bar {
+    width: 100%;
+    height: 8px;
+    background: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.tasks-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #10b981);
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+
+.task-add-form {
+    background: #f8fafc;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.task-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.task-input {
+    flex: 1;
+    padding: 9px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 13px;
+    background: white;
+}
+
+.task-input:focus {
+    border-color: #3b82f6;
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.task-date-input {
+    width: 130px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 12px;
+    background: white;
+}
+
+.task-add-btn {
+    padding: 9px 15px;
+    font-size: 13px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.plan-tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.task-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+    transition: all 0.15s ease;
+}
+
+.task-item:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.task-item.completed {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+
+.task-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.task-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: #10b981;
+    flex-shrink: 0;
+}
+
+.task-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
+    word-break: break-word;
+    flex: 1;
+    transition: all 0.15s ease;
+}
+
+.task-title.completed {
+    text-decoration: line-through;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.task-due-badge {
+    font-size: 11px;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    padding: 2px 7px;
+    border-radius: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.task-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: 10px;
+}
+
+.task-btn-edit,
+.task-btn-del {
+    padding: 4px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.task-btn-edit {
+    background: #eff6ff;
+    color: #2563eb;
+    border: 1px solid #bfdbfe;
+}
+
+.task-btn-edit:hover {
+    background: #dbeafe;
+    border-color: #93c5fd;
+}
+
+.task-btn-del {
+    background: #fef2f2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+}
+
+.task-btn-del:hover {
+    background: #fee2e2;
+    border-color: #fca5a5;
+}
+
+.task-inline-edit-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+}
+
+.task-inline-input {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1.5px solid #3b82f6;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.task-inline-date {
+    width: 125px;
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.task-btn-save {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.task-btn-cancel {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.plan-task-count-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ==========================================================
+   🧭 PDS 3단계 탭 네비게이션 스타일 (스크롤 없는 뷰 전환)
+   ========================================================== */
+
+.pds-tab-nav {
+    display: flex;
+    gap: 10px;
+    background: #f1f5f9;
+    padding: 6px;
+    border-radius: 14px;
+    margin-bottom: 24px;
+    border: 1.5px solid #e2e8f0;
+    position: sticky;
+    top: 12px;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+}
+
+.pds-tab-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.pds-tab-btn:hover {
+    color: #1e293b;
+    background: rgba(255, 255, 255, 0.7);
+}
+
+.pds-tab-btn.active {
+    background: white;
+    color: #0f172a;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.pds-tab-btn.active[data-tab="plan"] {
+    color: #1d4ed8;
+    border-color: #93c5fd;
+}
+
+.pds-tab-btn.active[data-tab="do"] {
+    color: #b45309;
+    border-color: #fcd34d;
+}
+
+.pds-tab-btn.active[data-tab="see"] {
+    color: #047857;
+    border-color: #a7f3d0;
+}
+
+.pds-tab-btn .tab-icon {
+    font-size: 18px;
+}
+
+.pds-tab-btn .tab-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    background: #e2e8f0;
+    color: #475569;
+    transition: all 0.2s ease;
+}
+
+.pds-tab-btn.active[data-tab="plan"] .tab-badge {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.pds-tab-btn.active[data-tab="do"] .tab-badge {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.pds-tab-btn.active[data-tab="see"] .tab-badge {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.plan-do-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.plan-do-btn:hover {
+    background: #fef3c7;
+    border-color: #fcd34d;
+    color: #92400e;
+}
+
+.do-shortcut-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    background: #fffbeb;
+    color: #b45309;
+    border: 1.5px solid #fde68a;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.do-shortcut-btn:hover {
+    background: #fef3c7;
+    border-color: #fcd34d;
+}
+
+@media (max-width: 768px) {
+    .pds-tab-nav {
+        gap: 6px;
+        padding: 4px;
+        top: 8px;
+    }
+    .pds-tab-btn {
+        padding: 10px 6px;
+        font-size: 13px;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .pds-tab-btn .tab-badge {
+        font-size: 10px;
+        padding: 1px 6px;
+    }
+}
+

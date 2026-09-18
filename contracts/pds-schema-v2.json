@@ -157,9 +157,40 @@
         "created_at": { "type": "TEXT", "nullable": false, "description": "고칠 점 등록 일시 (YYYY-MM-DD HH:MM:SS)" },
         "applied_at": { "type": "TEXT", "nullable": true, "description": "새 계획에 적용된 일시 (YYYY-MM-DD HH:MM:SS)" }
       }
+    },
+    "plan_tasks": {
+      "description": "계획에 딸린 세부 할 일(체크리스트/Subtasks) 테이블. 한 계획에 5개 이상의 세부 과제를 등록·수정·삭제하고 완료 여부를 관리합니다.",
+      "primaryKey": ["id"],
+      "foreignKeys": [
+        {
+          "column": "plan_id",
+          "referencesTable": "plans",
+          "referencesColumn": "id",
+          "onDelete": "CASCADE"
+        }
+      ],
+      "columns": {
+        "id": { "type": "INTEGER", "primaryKey": true, "autoIncrement": true, "description": "할 일 고유 식별자 ID" },
+        "plan_id": { "type": "INTEGER", "nullable": false, "description": "상위 계획 ID" },
+        "title": { "type": "TEXT", "nullable": false, "description": "세부 할 일 내용" },
+        "is_completed": { "type": "INTEGER", "nullable": false, "default": 0, "description": "완료 여부 (0: 미완료, 1: 완료)" },
+        "due_date": { "type": "TEXT", "nullable": false, "default": "", "description": "할 일 마감일 (YYYY-MM-DD)" },
+        "order_num": { "type": "INTEGER", "nullable": false, "default": 1, "description": "정렬 순서" },
+        "created_at": { "type": "TEXT", "nullable": false, "description": "할 일 등록 일시 (YYYY-MM-DD HH:MM:SS)" },
+        "updated_at": { "type": "TEXT", "nullable": false, "description": "할 일 최종 수정 일시 (YYYY-MM-DD HH:MM:SS)" }
+      }
     }
   },
   "relationships": [
+    {
+      "parentTable": "plans",
+      "parentColumn": "id",
+      "childTable": "plan_tasks",
+      "childColumn": "plan_id",
+      "type": "1:N",
+      "onDelete": "CASCADE",
+      "description": "하나의 계획은 0개 또는 5개 이상의 세부 딸린 할 일(Subtasks)을 보유할 수 있습니다."
+    },
     {
       "parentTable": "plans",
       "parentColumn": "id",
